@@ -1,0 +1,235 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, FlatList, RefreshControl } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useDispatch, useSelector } from 'react-redux';
+import SortBar from '../components/SortBar';
+import StatusToggle from '../components/StatusToggle';
+import ZoneListItem, { ZONE_ITEM_HEIGHT } from '../components/ZoneListItem';
+import ConnectionBanner from '../components/ConnectionBanner';
+import { useZones } from '../hooks/useZones';
+import { DRIVER_STATUS, SORT_OPTIONS } from '../lib/constants';
+import { getDistanceMeters } from '../lib/locationEngine';
+import {
+  startGeofenceManager,
+  stopGeofenceManager,
+  getTop20Zones,
+} from '../lib/geofenceEngine';
+import { setTop20Zones, setSort } from '../store/zonesSlice';
+import { getDriverPositionInZone } from '../lib/zoneStatsEngine';
+import { initNotifications } from '../lib/notificationService';
+import {
+  startNotificationEngine,
+  stopNotificationEngine,
+} from '../lib/notificationEngine';
+
+const STATUS_DEFAULT_SORT = {
+  [DRIVER_STATUS.ACTIVE]: SORT_OPTIONS.WAIT,
+  [DRIVER_STATUS.STAGED]: SORT_OPTIONS.NEAREST,
+  [DRIVER_STATUS.BROWSING]: SORT_OPTIONS.FLOW,
+};
+
+const STATUS_COLORS = {
+  active: '#22C55E',
+  staged: '#F5C518',
+  off_duty: '#EF4444',
+  browsing: '#8A93A6',
+};
+
+export default function HomeScreen() {
+  const dispatch = useDispatch();
+  const { allZones, stats, loading, error, refresh, refreshing, statsUpdatedAt } =
+    useZones();
+  const activeSort = useSelector((s) => s.zones.activeSort);
+  const status = useSelector((s) => s.drivers.status);
+  const currentLat = useSelector((s) => s.drivers.currentLat);
+  const currentLng = useSelector((s) => s.drivers.currentLng);
+  const currentZoneId = useSelector((s) => s.drivers.currentZoneId);
+  const zoneEntryTime = useSelector((s) => s.drivers.zoneEntryTime);
+
+  const [now, setNow] = useState(() => new Date());
+  const [driverPosition, setDriverPosition] = useState(null);
+  const prevStatusRef = useRef(status);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    initNotifications().catch((err) =>
+      console.warn('[HomeScreen] initNotifications failed', err)
+    );
+  }, []);
+
+  useEffect(() => {
+    if (
+      status !== DRIVER_STATUS.OFF_DUTY &&
+      status !== DRIVER_STATUS.BROWSING
+    ) {
+      startGeofenceManager();
+      startNotificationEngine();
+    } else {
+      stopNotificationEngine();
+    }
+    return () => {
+      stopGeofenceManager();
+      stopNotificationEngine();
+    };
+  }, [status]);
+
+  useEffect(() => {
+    if (prevStatusRef.current === status) return;
+    prevStatusRef.current = status;
+    const nextSort = STATUS_DEFAULT_SORT[status];
+    if (nextSort) dispatch(setSort(nextSort));
+  }, [status, dispatch]);
+
+  const enriched = useMemo(() => {
+    return allZones.map((z) => {
+      const stat = stats[z.id];
+      const distance =
+        currentLat != null && currentLng != null
+          ? getDistanceMeters(currentLat, currentLng, z.lat, z.lng)
+          : null;
+      return { zone: z, stat, distance };
+    });
+  }, [allZones, stats, currentLat, currentLng]);
+
+  const sortedZones = useMemo(() => {
+    const list = enriched.slice();
+    if (activeSort === SORT_OPTIONS.NEAREST) {
+      list.sort((a, b) => {
+        if (a.distance == null && b.distance == null) return 0;
+        if (a.distance == null) return 1;
+        if (b.distance == null) return -1;
+        return a.distance - b.distance;
+      });
+    } else if (activeSort === SORT_OPTIONS.FLOW) {
+      list.sort(
+        (a, b) =>
+          (b.stat?.flow_rate_per_hour ?? 0) -
+          (a.stat?.flow_rate_per_hour ?? 0)
+      );
+    } else {
+      list.sort((a, b) => {
+        const aw = a.stat?.wait_time_minutes ?? Infinity;
+        const bw = b.stat?.wait_time_minutes ?? Infinity;
+        return aw - bw;
+      });
+    }
+    return list;
+  }, [enriched, activeSort]);
+
+  useEffect(() => {
+    if (allZones.length === 0) return;
+    const top20 = getTop20Zones(allZones, activeSort, currentLat, currentLng);
+    dispatch(setTop20Zones(top20));
+  }, [allZones, activeSort, currentLat, currentLng, dispatch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPosition() {
+      if (!currentZoneId || !zoneEntryTime) {
+        setDriverPosition(null);
+        return;
+      }
+      const enteredAtIso = new Date(zoneEntryTime).toISOString();
+      const pos = await getDriverPositionInZone(currentZoneId, enteredAtIso);
+      if (!cancelled) setDriverPosition(pos);
+    }
+    loadPosition();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentZoneId, zoneEntryTime, stats]);
+
+  const currentZoneWait =
+    currentZoneId && stats[currentZoneId]?.wait_time_minutes != null
+      ? stats[currentZoneId].wait_time_minutes
+      : null;
+
+  const renderItem = useCallback(
+    ({ item }) => (
+      <ZoneListItem
+        zone={item.zone}
+        stat={item.stat}
+        isCurrentZone={item.zone.id === currentZoneId}
+        driverPosition={item.zone.id === currentZoneId ? driverPosition : null}
+        driverWaitMinutes={item.zone.id === currentZoneId ? currentZoneWait : null}
+      />
+    ),
+    [currentZoneId, driverPosition, currentZoneWait]
+  );
+
+  const getItemLayout = useCallback(
+    (_, index) => ({
+      length: ZONE_ITEM_HEIGHT,
+      offset: ZONE_ITEM_HEIGHT * index,
+      index,
+    }),
+    []
+  );
+
+  return (
+    <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
+      <View className="flex-row items-center justify-between px-4 pt-2 pb-2">
+        <View>
+          <Text className="text-accent text-2xl font-bold">🚕 LvTaxi</Text>
+          <Text className="text-muted text-xs">
+            {now.toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </Text>
+        </View>
+        <View className="flex-row items-center">
+          <View
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 5,
+              backgroundColor: STATUS_COLORS[status] ?? '#8A93A6',
+              marginRight: 6,
+            }}
+          />
+          <Text className="text-text capitalize">
+            {String(status).replace('_', ' ')}
+          </Text>
+        </View>
+      </View>
+
+      <ConnectionBanner updatedAt={statsUpdatedAt} error={error} />
+
+      <StatusToggle />
+      <SortBar />
+
+      <FlatList
+        data={sortedZones}
+        keyExtractor={(item) => item.zone.id}
+        renderItem={renderItem}
+        getItemLayout={getItemLayout}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refresh}
+            tintColor="#F5C518"
+          />
+        }
+        ListEmptyComponent={
+          <View className="px-4 py-12 items-center">
+            <Text className="text-muted">
+              {loading
+                ? 'Loading zones…'
+                : 'No zones found. Did you run the seed script?'}
+            </Text>
+          </View>
+        }
+        contentContainerStyle={{ paddingBottom: 24 }}
+      />
+    </SafeAreaView>
+  );
+}
