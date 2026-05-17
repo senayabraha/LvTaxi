@@ -59,62 +59,90 @@ let lastPoint = null;
 let lastDispatchAt = 0;
 let stationarySince = null;
 let lowPowerMode = false;
+let currentMode = 'high';
 const DISPATCH_INTERVAL_MS = 1000;
 const STATIONARY_SPEED_MPS = 0.5;
 const STATIONARY_TO_LOW_POWER_MS = 10 * 60 * 1000;
 const MOTION_TO_HIGH_POWER_MPS = 1.5;
 const listeners = new Set();
 
+export const GPS_MODE = {
+  HIGH: 'high',       // active/staged — 1s, Accuracy.BestForNavigation
+  LOW: 'low',         // stationary in zone — 5s, Accuracy.Balanced (auto)
+  PASSIVE: 'passive', // off-duty — 5min, Accuracy.Balanced
+};
+
 export function onSmoothedLocation(listener) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-async function startWatcher(lowPower) {
-  return Location.watchPositionAsync(
-    lowPower
-      ? {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5000,
-          distanceInterval: 5,
-        }
-      : {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 1000,
-          distanceInterval: 0.5,
-        },
-    handleLocationUpdate
-  );
+function modeOptions(mode) {
+  if (mode === GPS_MODE.PASSIVE) {
+    return {
+      accuracy: Location.Accuracy.Balanced,
+      timeInterval: 300_000,
+      distanceInterval: 25,
+    };
+  }
+  if (mode === GPS_MODE.LOW) {
+    return {
+      accuracy: Location.Accuracy.Balanced,
+      timeInterval: 5000,
+      distanceInterval: 5,
+    };
+  }
+  return {
+    accuracy: Location.Accuracy.BestForNavigation,
+    timeInterval: 1000,
+    distanceInterval: 0.5,
+  };
 }
 
-async function setLowPowerMode(enabled) {
-  if (lowPowerMode === enabled) return;
-  lowPowerMode = enabled;
+async function startWatcher(mode) {
+  return Location.watchPositionAsync(modeOptions(mode), handleLocationUpdate);
+}
+
+async function switchMode(mode) {
+  if (currentMode === mode) return;
+  currentMode = mode;
+  lowPowerMode = mode !== GPS_MODE.HIGH;
   if (subscription) {
     subscription.remove();
     subscription = null;
   }
   try {
-    subscription = await startWatcher(enabled);
+    subscription = await startWatcher(mode);
   } catch (err) {
     console.warn('[locationEngine] mode switch failed', err);
   }
 }
 
+export async function setGPSMode(mode) {
+  return switchMode(mode);
+}
+
+export function getGPSMode() {
+  return currentMode;
+}
+
+// Auto-throttle between HIGH and LOW based on motion when on-duty.
+// Does NOT touch PASSIVE mode (off-duty is set explicitly by status).
 function maybeSwitchPowerMode(speed, timestamp) {
+  if (currentMode === GPS_MODE.PASSIVE) return;
   const moving = (speed ?? 0) >= MOTION_TO_HIGH_POWER_MPS;
   if (moving) {
     stationarySince = null;
-    if (lowPowerMode) setLowPowerMode(false);
+    if (currentMode === GPS_MODE.LOW) switchMode(GPS_MODE.HIGH);
     return;
   }
   if ((speed ?? 0) < STATIONARY_SPEED_MPS) {
     if (stationarySince == null) stationarySince = timestamp;
     if (
-      !lowPowerMode &&
+      currentMode === GPS_MODE.HIGH &&
       timestamp - stationarySince >= STATIONARY_TO_LOW_POWER_MS
     ) {
-      setLowPowerMode(true);
+      switchMode(GPS_MODE.LOW);
     }
   }
 }
@@ -191,8 +219,11 @@ function handleLocationUpdate(loc) {
   maybeSwitchPowerMode(derivedSpeed, timestamp);
 }
 
-export async function startLocationTracking() {
-  if (subscription) return subscription;
+export async function startLocationTracking(mode = GPS_MODE.HIGH) {
+  if (subscription) {
+    if (currentMode !== mode) await switchMode(mode);
+    return subscription;
+  }
 
   const fg = await Location.requestForegroundPermissionsAsync();
   if (fg.status !== 'granted') {
@@ -209,9 +240,10 @@ export async function startLocationTracking() {
   lastPoint = null;
   lastDispatchAt = 0;
   stationarySince = null;
-  lowPowerMode = false;
+  lowPowerMode = mode !== GPS_MODE.HIGH;
+  currentMode = mode;
 
-  subscription = await startWatcher(false);
+  subscription = await startWatcher(mode);
   return subscription;
 }
 
@@ -225,6 +257,7 @@ export function stopLocationTracking() {
   lastDispatchAt = 0;
   stationarySince = null;
   lowPowerMode = false;
+  currentMode = 'high';
 }
 
 export function getLastSmoothedPoint() {

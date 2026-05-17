@@ -51,7 +51,11 @@ export function useZones() {
       if (showLoading) dispatch(setLoading(true));
       try {
         const [zonesRes, statsRes] = await Promise.all([
-          supabase.from('staging_zones').select('*').eq('active', true),
+          supabase
+            .from('staging_zones')
+            .select('*')
+            .eq('active', true)
+            .eq('visible_to_drivers', true),
           supabase.from('zone_stats').select('*'),
         ]);
 

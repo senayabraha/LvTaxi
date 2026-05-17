@@ -1,5 +1,6 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import * as turf from '@turf/turf';
 import { store } from '../store';
 import { zoneEntered, zoneExited } from '../store/driversSlice';
 import { setTop20Zones } from '../store/zonesSlice';
@@ -7,6 +8,7 @@ import { supabase } from './supabase';
 import { getDistanceMeters } from './locationEngine';
 import { startRecording, stopRecording } from './trajectoryRecorder';
 import { processZoneExit } from './visitProcessor';
+import { incrementZoneCount } from './zoneStatsEngine';
 import { SORT_OPTIONS } from './constants';
 
 export const GEOFENCE_TASK = 'LVTAXI_GEOFENCE_TASK';
@@ -28,9 +30,49 @@ function getZoneById(id) {
   return all.find((z) => z.id === id) ?? null;
 }
 
+// Hybrid layer: native circle wakes us up, polygon refines.
+// Returns true if no polygon (trust the circle).
+function verifyWithPolygon(zone, lat, lng) {
+  if (!zone) return true;
+  const polygon = zone.use_driven_polygon
+    ? zone.driven_polygon
+    : zone.drawn_polygon;
+  if (!polygon) return true;
+  try {
+    return turf.booleanPointInPolygon(turf.point([lng, lat]), polygon);
+  } catch (err) {
+    console.warn('[geofenceEngine] polygon check failed', err);
+    return true;
+  }
+}
+
 async function handleEnter(zoneId) {
   const zone = getZoneById(zoneId);
-  const driverId = store.getState().drivers.session?.user?.id ?? null;
+  const driverId = store.getState().auth.session?.user?.id ?? null;
+
+  // Native geofence is wider than the actual lane — confirm with polygon.
+  if (zone?.drawn_polygon || zone?.driven_polygon) {
+    let pos = null;
+    try {
+      pos = await Location.getLastKnownPositionAsync({
+        maxAge: 30_000,
+      });
+    } catch (err) {
+      console.warn('[geofenceEngine] getLastKnownPosition failed', err);
+    }
+    if (pos?.coords) {
+      const inside = verifyWithPolygon(
+        zone,
+        pos.coords.latitude,
+        pos.coords.longitude
+      );
+      if (!inside) {
+        console.log('[geofenceEngine] polygon rejected enter for', zone.name);
+        return;
+      }
+    }
+  }
+
   store.dispatch(zoneEntered(zoneId));
 
   let visitId = null;
@@ -52,6 +94,10 @@ async function handleEnter(zoneId) {
     }
   }
 
+  incrementZoneCount(zoneId).catch((err) =>
+    console.warn('[geofenceEngine] incrementZoneCount failed', err)
+  );
+
   startRecording(
     visitId,
     zone ? { lat: zone.lat, lng: zone.lng } : null
@@ -61,7 +107,7 @@ async function handleEnter(zoneId) {
 async function handleExit(zoneId) {
   const state = store.getState();
   const entryTime = state.drivers.zoneEntryTime;
-  const driverId = state.drivers.session?.user?.id ?? null;
+  const driverId = state.auth.session?.user?.id ?? null;
   store.dispatch(zoneExited());
 
   const visitId = activeVisits.get(zoneId) ?? null;
@@ -128,7 +174,8 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
 export function getTop20Zones(allZones, sortOption, driverLat, driverLng) {
   if (!allZones || allZones.length === 0) return [];
   const stats = store.getState().zones.stats;
-  const list = allZones.slice();
+  // Coming Soon zones are placeholders only — never spend a geofence slot.
+  const list = allZones.filter((z) => !z.is_coming_soon);
 
   if (sortOption === SORT_OPTIONS.NEAREST) {
     if (driverLat == null || driverLng == null) {

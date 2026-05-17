@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { extractFeatures } from './trajectoryRecorder';
 import { classifyVisit, VISIT_CLASS } from './behavioralClassifier';
-import { decrementZoneCount } from './zoneStatsEngine';
+import { decrementZoneCount, recordLoadEvent } from './zoneStatsEngine';
 import { sendStagingConfirmation } from './notificationService';
 
 async function classifyRemote(features, driverId) {
@@ -144,6 +144,7 @@ export async function processAsStaging(visitId, opts = {}) {
   const driverId = visit.driver_id;
 
   await decrementZoneCount(zoneId);
+  await recordLoadEvent(zoneId);
   await upsertHistory(driverId, zoneId, {
     total_visits: 1,
     staging_count: 1,
@@ -172,6 +173,7 @@ export async function processAsDropoff(visitId, opts = {}) {
   const zoneId = opts.zoneId ?? visit.zone_id;
   const driverId = visit.driver_id;
 
+  await decrementZoneCount(zoneId);
   await upsertHistory(driverId, zoneId, {
     total_visits: 1,
     dropoff_count: 1,

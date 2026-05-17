@@ -33,6 +33,21 @@ function ZoneListItem({
   driverPosition,
   driverWaitMinutes,
 }) {
+  if (zone.is_coming_soon) {
+    return (
+      <View
+        className="mx-4 my-1 rounded-lg bg-panel"
+        style={{ opacity: 0.45 }}
+      >
+        <View className="flex-row items-center px-4 py-3">
+          <Text className="text-muted italic flex-1" numberOfLines={1}>
+            {zone.name} — Coming Soon
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   const cars = stat?.cars_staged ?? 0;
   const flow = stat?.flow_rate_per_hour ?? 0;
   const wait = stat?.wait_time_minutes ?? null;

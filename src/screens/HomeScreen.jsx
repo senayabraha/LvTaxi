@@ -25,14 +25,12 @@ import {
 const STATUS_DEFAULT_SORT = {
   [DRIVER_STATUS.ACTIVE]: SORT_OPTIONS.WAIT,
   [DRIVER_STATUS.STAGED]: SORT_OPTIONS.NEAREST,
-  [DRIVER_STATUS.BROWSING]: SORT_OPTIONS.FLOW,
 };
 
 const STATUS_COLORS = {
   active: '#22C55E',
   staged: '#F5C518',
   off_duty: '#EF4444',
-  browsing: '#8A93A6',
 };
 
 export default function HomeScreen() {
@@ -62,11 +60,9 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (
-      status !== DRIVER_STATUS.OFF_DUTY &&
-      status !== DRIVER_STATUS.BROWSING
-    ) {
-      startGeofenceManager();
+    // Geofencing always runs (off-duty drivers are still counted).
+    startGeofenceManager();
+    if (status !== DRIVER_STATUS.OFF_DUTY) {
       startNotificationEngine();
     } else {
       stopNotificationEngine();
@@ -88,7 +84,7 @@ export default function HomeScreen() {
     return allZones.map((z) => {
       const stat = stats[z.id];
       const distance =
-        currentLat != null && currentLng != null
+        !z.is_coming_soon && currentLat != null && currentLng != null
           ? getDistanceMeters(currentLat, currentLng, z.lat, z.lng)
           : null;
       return { zone: z, stat, distance };
@@ -96,28 +92,33 @@ export default function HomeScreen() {
   }, [allZones, stats, currentLat, currentLng]);
 
   const sortedZones = useMemo(() => {
-    const list = enriched.slice();
+    const active = enriched.filter((e) => !e.zone.is_coming_soon);
+    const comingSoon = enriched.filter((e) => e.zone.is_coming_soon);
+
     if (activeSort === SORT_OPTIONS.NEAREST) {
-      list.sort((a, b) => {
+      active.sort((a, b) => {
         if (a.distance == null && b.distance == null) return 0;
         if (a.distance == null) return 1;
         if (b.distance == null) return -1;
         return a.distance - b.distance;
       });
     } else if (activeSort === SORT_OPTIONS.FLOW) {
-      list.sort(
+      active.sort(
         (a, b) =>
           (b.stat?.flow_rate_per_hour ?? 0) -
           (a.stat?.flow_rate_per_hour ?? 0)
       );
     } else {
-      list.sort((a, b) => {
+      active.sort((a, b) => {
         const aw = a.stat?.wait_time_minutes ?? Infinity;
         const bw = b.stat?.wait_time_minutes ?? Infinity;
         return aw - bw;
       });
     }
-    return list;
+
+    // Coming Soon always last, alphabetical.
+    comingSoon.sort((a, b) => a.zone.name.localeCompare(b.zone.name));
+    return [...active, ...comingSoon];
   }, [enriched, activeSort]);
 
   useEffect(() => {
