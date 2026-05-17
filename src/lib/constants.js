@@ -110,7 +110,6 @@ export const DRIVER_STATUS = {
   ACTIVE: 'active',
   STAGED: 'staged',
   OFF_DUTY: 'off_duty',
-  BROWSING: 'browsing',
 };
 
 export const SORT_OPTIONS = {

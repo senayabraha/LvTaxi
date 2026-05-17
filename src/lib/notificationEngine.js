@@ -44,7 +44,7 @@ export async function registerPushToken() {
     return null;
   }
 
-  const driverId = store.getState().drivers.session?.user?.id;
+  const driverId = store.getState().auth.session?.user?.id;
   if (driverId && token) {
     const { error } = await supabase
       .from('drivers')
@@ -99,7 +99,7 @@ async function sendLocal(title, body, data) {
 async function evaluateNearbyZones() {
   const state = store.getState();
   if (state.drivers.status !== DRIVER_STATUS.ACTIVE) return;
-  const driverId = state.drivers.session?.user?.id;
+  const driverId = state.auth.session?.user?.id;
   const { currentLat, currentLng } = state.drivers;
   if (!driverId || currentLat == null || currentLng == null) return;
 
@@ -138,7 +138,7 @@ function evaluateQueueUpdate() {
   }
   const zoneId = state.drivers.currentZoneId;
   if (!zoneId) return;
-  const driverId = state.drivers.session?.user?.id;
+  const driverId = state.auth.session?.user?.id;
   const stat = state.zones.stats[zoneId];
   const wait = stat?.wait_time_minutes;
   if (wait == null || !driverId) return;

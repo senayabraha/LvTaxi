@@ -1,36 +1,16 @@
 import React from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useSelector } from 'react-redux';
-import { useAuth } from '../hooks/useAuth';
+import { useDispatch, useSelector } from 'react-redux';
+import { signOut } from '../lib/sessionManager';
 import StatusToggle from '../components/StatusToggle';
 
 export default function ProfileScreen() {
-  const { signOut } = useAuth();
-  const session = useSelector((s) => s.drivers.session);
+  const dispatch = useDispatch();
+  const session = useSelector((s) => s.auth.session);
+  const isAdmin = useSelector((s) => s.auth.isAdmin);
   const profile = useSelector((s) => s.drivers.profile);
   const status = useSelector((s) => s.drivers.status);
-  const isGuest = useSelector((s) => s.drivers.isGuest);
-
-  if (isGuest) {
-    return (
-      <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
-        <ScrollView>
-          <View className="px-4 pt-4">
-            <Text className="text-accent text-2xl font-bold">Profile</Text>
-          </View>
-
-          <View className="mx-4 mt-4 bg-panel rounded-lg border border-border p-4">
-            <Text className="text-text text-base font-semibold">Driver mode</Text>
-            <Text className="text-muted text-sm mt-2">
-              You can browse live staging zones and change your driver status
-              without signing in.
-            </Text>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
@@ -55,7 +35,19 @@ export default function ProfileScreen() {
             {profile?.id ?? session?.user?.id ?? '—'}
           </Text>
           <Text className="text-muted text-xs mt-3 mb-1">Status</Text>
-          <Text className="text-text capitalize">{String(status).replace('_', ' ')}</Text>
+          <Text className="text-text capitalize">
+            {String(status).replace('_', ' ')}
+          </Text>
+          {isAdmin ? (
+            <>
+              <Text className="text-muted text-xs mt-3 mb-1">Role</Text>
+              <Text className="text-accent text-base">Admin</Text>
+            </>
+          ) : null}
+          <Text className="text-muted text-xs mt-3 mb-1">Subscription</Text>
+          <Text className="text-text capitalize">
+            {profile?.subscription_tier ?? 'free'}
+          </Text>
         </View>
 
         <View className="mt-2">
@@ -64,7 +56,7 @@ export default function ProfileScreen() {
 
         <View className="px-4 mt-6">
           <Pressable
-            onPress={signOut}
+            onPress={() => signOut(dispatch)}
             className="bg-panel border border-bad rounded-lg py-3 items-center"
           >
             <Text className="text-bad font-semibold">Sign out</Text>

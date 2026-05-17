@@ -6,24 +6,21 @@ import { DRIVER_STATUS } from '../lib/constants';
 import { supabase } from '../lib/supabase';
 import {
   startLocationTracking,
-  stopLocationTracking,
+  setGPSMode,
+  GPS_MODE,
 } from '../lib/locationEngine';
-import {
-  startGeofenceManager,
-  stopGeofenceManager,
-} from '../lib/geofenceEngine';
+import { startGeofenceManager } from '../lib/geofenceEngine';
 
 const OPTIONS = [
   { value: DRIVER_STATUS.ACTIVE, label: 'Active', dot: '#22C55E' },
   { value: DRIVER_STATUS.STAGED, label: 'Staged', dot: '#F5C518' },
   { value: DRIVER_STATUS.OFF_DUTY, label: 'Off Duty', dot: '#EF4444' },
-  { value: DRIVER_STATUS.BROWSING, label: 'Browsing', dot: '#8A93A6' },
 ];
 
 export default function StatusToggle() {
   const dispatch = useDispatch();
   const status = useSelector((s) => s.drivers.status);
-  const session = useSelector((s) => s.drivers.session);
+  const session = useSelector((s) => s.auth.session);
 
   async function onSelect(value) {
     if (value === status) return;
@@ -42,13 +39,12 @@ export default function StatusToggle() {
 
     try {
       if (value === DRIVER_STATUS.OFF_DUTY) {
-        await stopGeofenceManager();
-        stopLocationTracking();
-      } else if (
-        prev === DRIVER_STATUS.OFF_DUTY ||
-        prev === DRIVER_STATUS.BROWSING
-      ) {
-        await startLocationTracking();
+        await startLocationTracking(GPS_MODE.PASSIVE);
+        await setGPSMode(GPS_MODE.PASSIVE);
+        startGeofenceManager();
+      } else {
+        await startLocationTracking(GPS_MODE.HIGH);
+        await setGPSMode(GPS_MODE.HIGH);
         startGeofenceManager();
       }
     } catch (err) {

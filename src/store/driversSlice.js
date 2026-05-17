@@ -1,13 +1,9 @@
 import { createSlice } from '@reduxjs/toolkit';
 import { DRIVER_STATUS, SORT_OPTIONS } from '../lib/constants';
 
-export const GUEST_MODE_KEY = 'lvtaxi_guest_mode';
-
 const initialState = {
-  session: null,
   profile: null,
-  isGuest: false,
-  status: DRIVER_STATUS.BROWSING,
+  status: DRIVER_STATUS.OFF_DUTY,
   currentLat: null,
   currentLng: null,
   rawAccuracy: null,
@@ -24,25 +20,24 @@ const driversSlice = createSlice({
   name: 'drivers',
   initialState,
   reducers: {
-    setSession(state, action) {
-      state.session = action.payload;
-      if (action.payload) state.isGuest = false;
-    },
-    setGuest(state, action) {
-      state.isGuest = !!action.payload;
-      if (action.payload) {
-        state.session = null;
-        state.profile = null;
-      }
-    },
     setProfile(state, action) {
       state.profile = action.payload;
       if (action.payload?.status) {
         state.status = action.payload.status;
       }
     },
+    clearProfile(state) {
+      state.profile = null;
+      state.status = DRIVER_STATUS.OFF_DUTY;
+    },
     setStatus(state, action) {
-      state.status = action.payload;
+      const next = action.payload;
+      if (next !== DRIVER_STATUS.ACTIVE &&
+          next !== DRIVER_STATUS.STAGED &&
+          next !== DRIVER_STATUS.OFF_DUTY) {
+        return;
+      }
+      state.status = next;
     },
     setLocation(state, action) {
       const { lat, lng, accuracy, speed, heading, acceleration } =
@@ -67,22 +62,17 @@ const driversSlice = createSlice({
       state.isInsideZone = false;
       state.zoneEntryTime = null;
     },
-    signOut(state) {
-      Object.assign(state, initialState);
-    },
   },
 });
 
 export const {
-  setSession,
-  setGuest,
   setProfile,
+  clearProfile,
   setStatus,
   setLocation,
   setActiveSort,
   zoneEntered,
   zoneExited,
-  signOut,
 } = driversSlice.actions;
 
 export default driversSlice.reducer;

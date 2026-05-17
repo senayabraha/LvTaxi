@@ -38,7 +38,7 @@ function HeatBar({ value, max }) {
 }
 
 export default function AnalyticsScreen() {
-  const driverId = useSelector((s) => s.drivers.session?.user?.id);
+  const driverId = useSelector((s) => s.auth.session?.user?.id);
   const allZones = useSelector((s) => s.zones.allZones);
   const [loading, setLoading] = useState(false);
   const [visits, setVisits] = useState([]);

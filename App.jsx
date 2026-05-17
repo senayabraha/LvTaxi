@@ -1,21 +1,26 @@
 import './global.css';
-import React from 'react';
-import { Provider } from 'react-redux';
+import React, { useEffect } from 'react';
+import { Provider, useDispatch, useSelector } from 'react-redux';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Text } from 'react-native';
 
 import { store } from './src/store';
-import { useAuth } from './src/hooks/useAuth';
+import { setupSessionListener } from './src/lib/sessionManager';
 import SplashScreen from './src/screens/SplashScreen';
+import AuthScreen from './src/screens/AuthScreen';
+import NameScreen from './src/screens/NameScreen';
+import LocationPermissionScreen from './src/screens/LocationPermissionScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import AnalyticsScreen from './src/screens/AnalyticsScreen';
 import ErrorBoundary from './src/components/ErrorBoundary';
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 
 const navTheme = {
   ...DarkTheme,
@@ -57,23 +62,53 @@ function MainTabs() {
   );
 }
 
-function Root() {
-  const { loading } = useAuth();
+function LocationPermissionRoute({ navigation }) {
+  return <LocationPermissionScreen onGranted={() => navigation.navigate('Auth')} />;
+}
 
-  if (loading) return <SplashScreen />;
-  return <MainTabs />;
+function AuthStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Auth" component={AuthScreen} />
+      <Stack.Screen name="Name" component={NameScreen} />
+      <Stack.Screen
+        name="LocationPermission"
+        component={LocationPermissionRoute}
+      />
+    </Stack.Navigator>
+  );
+}
+
+function Root() {
+  const dispatch = useDispatch();
+  const session = useSelector((s) => s.auth.session);
+  const isLoading = useSelector((s) => s.auth.isLoading);
+  const profile = useSelector((s) => s.drivers.profile);
+
+  useEffect(() => {
+    const unsub = setupSessionListener(dispatch);
+    return unsub;
+  }, [dispatch]);
+
+  if (isLoading) return <SplashScreen />;
+
+  const showMain = !!session && !!profile;
+
+  return (
+    <NavigationContainer theme={navTheme}>
+      <StatusBar style="light" />
+      {showMain ? <MainTabs /> : <AuthStack />}
+    </NavigationContainer>
+  );
 }
 
 export default function App() {
   return (
     <Provider store={store}>
       <SafeAreaProvider>
-        <NavigationContainer theme={navTheme}>
-          <StatusBar style="light" />
-          <ErrorBoundary>
-            <Root />
-          </ErrorBoundary>
-        </NavigationContainer>
+        <ErrorBoundary>
+          <Root />
+        </ErrorBoundary>
       </SafeAreaProvider>
     </Provider>
   );
