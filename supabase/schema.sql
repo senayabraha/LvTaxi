@@ -174,6 +174,10 @@ create index if not exists zone_departures_zone_time on zone_departures(zone_id,
 
 
 
+-- circle_enabled: when false, native OS geofence circle is not registered
+alter table staging_zones
+  add column if not exists circle_enabled boolean default true;
+
 -- Admin audit log: immutable record of every zone field change/delete.
 -- zone_id has no FK so records survive zone deletion.
 create table if not exists zone_audit_log (

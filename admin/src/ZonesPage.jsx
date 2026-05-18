@@ -3,6 +3,7 @@ import { supabase } from './supabase.js';
 import ZoneTable from './ZoneTable.jsx';
 import UploadModal from './UploadModal.jsx';
 import ZoneMapModal from './ZoneMapModal.jsx';
+import ZoneCircleModal from './ZoneCircleModal.jsx';
 import AddZoneModal from './AddZoneModal.jsx';
 import { updateZoneFields, deleteZone, regenerateSnapshot } from './lib/zoneStore.js';
 import { useToast } from './useToast.jsx';
@@ -90,6 +91,7 @@ export default function ZonesPage({ onCounts }) {
   const [showUpload, setShowUpload] = useState(false);
   const [showAddZone, setShowAddZone] = useState(false);
   const [previewZone, setPreviewZone] = useState(null);
+  const [editCircleZone, setEditCircleZone] = useState(null);
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name');
   const [search, setSearch] = useState('');
@@ -322,6 +324,7 @@ export default function ZonesPage({ onCounts }) {
             onUpdate={handleUpdateZone}
             onDelete={handleDeleteZone}
             onPreview={setPreviewZone}
+            onEditCircle={setEditCircleZone}
           />
         )}
       </main>
@@ -352,6 +355,14 @@ export default function ZonesPage({ onCounts }) {
         <ZoneMapModal
           zone={previewZone}
           onClose={() => setPreviewZone(null)}
+        />
+      ) : null}
+
+      {editCircleZone ? (
+        <ZoneCircleModal
+          zone={editCircleZone}
+          onClose={() => setEditCircleZone(null)}
+          onSaved={() => { setEditCircleZone(null); load(); }}
         />
       ) : null}
     </div>

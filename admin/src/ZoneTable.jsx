@@ -1,7 +1,7 @@
 import React from 'react';
 import ZoneRow from './ZoneRow.jsx';
 
-export default function ZoneTable({ zones, stats, onUpdate, onDelete, onPreview }) {
+export default function ZoneTable({ zones, stats, onUpdate, onDelete, onPreview, onEditCircle }) {
   if (zones.length === 0) {
     return (
       <div className="text-muted text-center py-12">No zones match the filter.</div>
@@ -29,6 +29,12 @@ export default function ZoneTable({ zones, stats, onUpdate, onDelete, onPreview 
             >
               Visible
             </th>
+            <th
+              className="text-center px-2 sm:px-3 py-3"
+              title="Native OS geofence circle active"
+            >
+              Circle
+            </th>
             <th className="text-right px-2 sm:px-3 py-3">Cars</th>
             <th className="text-right px-2 sm:px-3 py-3">Wait</th>
             <th className="text-right px-3 sm:px-6 py-3">Updated</th>
@@ -44,6 +50,7 @@ export default function ZoneTable({ zones, stats, onUpdate, onDelete, onPreview 
               onUpdate={onUpdate}
               onDelete={onDelete}
               onPreview={onPreview}
+              onEditCircle={onEditCircle}
             />
           ))}
         </tbody>

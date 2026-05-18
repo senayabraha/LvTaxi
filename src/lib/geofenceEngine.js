@@ -205,7 +205,7 @@ export function getTop20Zones(allZones, sortOption, driverLat, driverLng) {
 
 async function applyGeofences(top20Zones) {
   const regions = (top20Zones ?? [])
-    .filter((z) => z && z.lat != null && z.lng != null)
+    .filter((z) => z && z.lat != null && z.lng != null && z.circle_enabled !== false)
     .map((z) => ({
       identifier: z.id,
       latitude: z.lat,

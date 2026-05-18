@@ -79,7 +79,7 @@ function timeAgo(iso) {
   return `${d}d ago`;
 }
 
-export default function ZoneRow({ zone, stat, onUpdate, onDelete, onPreview }) {
+export default function ZoneRow({ zone, stat, onUpdate, onDelete, onPreview, onEditCircle }) {
   const [saving, setSaving] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -174,6 +174,14 @@ export default function ZoneRow({ zone, stat, onUpdate, onDelete, onPreview }) {
           disabled={isBusy}
         />
       </td>
+      <td className="px-2 sm:px-3 py-3 text-center">
+        <Toggle
+          value={zone.circle_enabled !== false}
+          onChange={(v) => toggle('circle_enabled', v)}
+          color="#3B82F6"
+          disabled={isBusy}
+        />
+      </td>
       <td className="px-2 sm:px-3 py-3 text-right tabular-nums">{cars}</td>
       <td className="px-2 sm:px-3 py-3 text-right tabular-nums">
         {formatWait(wait)}
@@ -189,6 +197,13 @@ export default function ZoneRow({ zone, stat, onUpdate, onDelete, onPreview }) {
             className="text-muted hover:text-text px-1.5 py-1 rounded hover:bg-panel2 text-xs"
           >
             🗺
+          </button>
+          <button
+            onClick={() => onEditCircle?.(zone)}
+            title="Edit circle"
+            className="text-muted hover:text-text px-1.5 py-1 rounded hover:bg-panel2 text-xs"
+          >
+            ✏
           </button>
           {confirmDelete ? (
             <>
