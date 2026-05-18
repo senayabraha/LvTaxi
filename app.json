@@ -2,7 +2,8 @@
   "expo": {
     "name": "LvTaxi",
     "slug": "lvtaxi",
-    "version": "0.1.0",
+    "scheme": "lvtaxi",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -62,7 +63,8 @@
     "extra": {
       "supabaseUrl": "",
       "supabaseAnonKey": "",
-      "privacyPolicyUrl": "https://lvtaxi.app/privacy"
+      "privacyPolicyUrl": "https://lvtaxi.app/privacy",
+      "termsUrl": "https://lvtaxi.app/terms"
     }
   }
 }

@@ -87,7 +87,14 @@ create table if not exists notifications (
 );
 
 -- Realtime: include zone_stats so the client sees live updates.
-alter publication supabase_realtime add table zone_stats;
+do $$ begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'zone_stats'
+  ) then
+    alter publication supabase_realtime add table zone_stats;
+  end if;
+end $$;
 
 -- Row Level Security
 alter table drivers enable row level security;
@@ -97,6 +104,17 @@ alter table zone_visits enable row level security;
 alter table trajectories enable row level security;
 alter table driver_zone_history enable row level security;
 alter table notifications enable row level security;
+
+-- Drop any prior versions so re-runs are idempotent.
+drop policy if exists "zones readable by authenticated"      on staging_zones;
+drop policy if exists "zone_stats readable by authenticated" on zone_stats;
+drop policy if exists "drivers self read"                    on drivers;
+drop policy if exists "drivers self insert"                  on drivers;
+drop policy if exists "drivers self update"                  on drivers;
+drop policy if exists "visits self"                          on zone_visits;
+drop policy if exists "trajectories self"                    on trajectories;
+drop policy if exists "history self"                         on driver_zone_history;
+drop policy if exists "notifications self"                   on notifications;
 
 -- Anyone authenticated can read zones and live stats.
 create policy "zones readable by authenticated"
@@ -108,6 +126,7 @@ create policy "zone_stats readable by authenticated"
   to authenticated using (true);
 
 -- Drivers: a user can read/write only their own row.
+-- Note: 001_add_auth_columns.sql drops these and replaces with driver_own_record + admin_read_all.
 create policy "drivers self read"
   on drivers for select
   to authenticated using (auth.uid() = id);
@@ -159,60 +178,10 @@ create index if not exists zone_departures_zone_time on zone_departures(zone_id,
 
 
 
+-- Note: the following are defined in numbered migrations and intentionally
+-- not duplicated here:
+--   - circle_enabled column          → 005_circle_enabled.sql
+--   - zone_audit_log + policies      → 004_zone_audit_log.sql (needs is_admin from 001)
+--   - trajectories_visit_id_key      → phase5.sql (guarded)
+--   - zone_departures + RLS          → phase5.sql
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
--- circle_enabled: when false, native OS geofence circle is not registered
-alter table staging_zones
-  add column if not exists circle_enabled boolean default true;
-
--- Admin audit log: immutable record of every zone field change/delete.
--- zone_id has no FK so records survive zone deletion.
-create table if not exists zone_audit_log (
-  id          uuid        primary key default gen_random_uuid(),
-  zone_id     uuid        not null,
-  zone_name   text        not null,
-  field       text        not null,
-  old_value   text,
-  new_value   text,
-  admin_id    uuid        references drivers(id) on delete set null,
-  changed_at  timestamptz not null default now()
-);
-
-create index if not exists zone_audit_log_zone_id    on zone_audit_log(zone_id);
-create index if not exists zone_audit_log_changed_at on zone_audit_log(changed_at desc);
-
-alter table zone_audit_log enable row level security;
-
-create policy "audit log admin read"
-  on zone_audit_log for select
-  to authenticated
-  using (is_admin(auth.uid()));
-
-create policy "audit log admin insert"
-  on zone_audit_log for insert
-  to authenticated
-  with check (is_admin(auth.uid()));
-
--- needed for trajectory upsert in visitProcessor (onConflict: visit_id)
-alter table trajectories add constraint trajectories_visit_id_key unique (visit_id);
-
--- needed for the flow-rate query in zoneStatsEngine.decrementZoneCount
-create table if not exists zone_departures (
-  id uuid primary key default gen_random_uuid(),
-  zone_id uuid references staging_zones(id) on delete cascade,
-  departed_at timestamptz default now()
-);
-create index if not exists zone_departures_zone_time on zone_departures(zone_id, departed_at desc);

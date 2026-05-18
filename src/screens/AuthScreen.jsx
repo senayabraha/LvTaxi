@@ -9,9 +9,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Linking from 'expo-linking';
 import { useDispatch } from 'react-redux';
 import { supabase } from '../lib/supabase';
 import { setSession } from '../store/authSlice';
+
+const EMAIL_REDIRECT_URL = Linking.createURL('auth-callback');
 
 const TAB = { PHONE: 'phone', EMAIL: 'email' };
 const EMAIL_MODE = { SIGN_IN: 'sign_in', SIGN_UP: 'sign_up' };
@@ -160,6 +163,7 @@ export default function AuthScreen({ navigation }) {
       const { data, error: err } = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        options: { emailRedirectTo: EMAIL_REDIRECT_URL },
       });
       setBusy(false);
       if (err) {

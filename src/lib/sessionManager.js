@@ -1,3 +1,4 @@
+import * as Linking from 'expo-linking';
 import { supabase } from './supabase';
 import {
   setSession,
@@ -8,6 +9,27 @@ import {
 import { setProfile, clearProfile } from '../store/driversSlice';
 import { stopLocationTracking } from './locationEngine';
 import { stopGeofenceManager } from './geofenceEngine';
+
+async function handleAuthDeepLink(url) {
+  if (!url) return;
+  const parsed = Linking.parse(url);
+  const params = { ...(parsed.queryParams || {}) };
+  if (parsed.path && parsed.path.includes('#')) {
+    const fragment = parsed.path.split('#')[1];
+    new URLSearchParams(fragment).forEach((v, k) => {
+      params[k] = v;
+    });
+  }
+  const accessToken = params.access_token;
+  const refreshToken = params.refresh_token;
+  if (accessToken && refreshToken) {
+    const { error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (error) console.warn('[sessionManager] deep-link setSession failed', error.message);
+  }
+}
 
 async function fetchAndSetProfile(dispatch, userId) {
   if (!userId) return;
@@ -58,8 +80,14 @@ export function setupSessionListener(dispatch) {
     }
   );
 
+  Linking.getInitialURL().then(handleAuthDeepLink).catch(() => {});
+  const linkSub = Linking.addEventListener('url', ({ url }) => {
+    handleAuthDeepLink(url);
+  });
+
   return () => {
     sub.subscription.unsubscribe();
+    linkSub?.remove?.();
   };
 }
 

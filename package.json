@@ -1,6 +1,6 @@
 {
   "name": "lvtaxi",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -19,9 +19,10 @@
     "@supabase/supabase-js": "^2.45.4",
     "@turf/turf": "^7.3.5",
     "babel-preset-expo": "~54.0.10",
-    "expo": "^54.0.34",
+    "expo": "54.0.34",
     "expo-constants": "~18.0.13",
     "expo-device": "~8.0.10",
+    "expo-linking": "~8.0.12",
     "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.17",
     "expo-status-bar": "~3.0.9",

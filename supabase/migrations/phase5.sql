@@ -35,11 +35,16 @@ end $$;
 
 -- RLS for new tables
 alter table driver_zone_notifications enable row level security;
+alter table zone_departures           enable row level security;
+
+drop policy if exists "dzn self"              on driver_zone_notifications;
+drop policy if exists "departures insert auth" on zone_departures;
+drop policy if exists "departures read auth"   on zone_departures;
+
 create policy "dzn self"
   on driver_zone_notifications for all
   to authenticated using (auth.uid() = driver_id) with check (auth.uid() = driver_id);
 
-alter table zone_departures enable row level security;
 create policy "departures insert auth"
   on zone_departures for insert to authenticated with check (true);
 create policy "departures read auth"
