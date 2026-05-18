@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { TRACK_PHASE } from './useTrackController.js';
 import { DRAW_MODE } from './useDrawController.js';
 import { saveDrawn, saveDriven } from '../lib/zoneStore.js';
@@ -80,6 +80,93 @@ function SegmentedPair({ left, right, value, onChange, valueLeft, valueRight }) 
   );
 }
 
+// Styled combobox: full themed dropdown, filterable, closes on outside click.
+// required=true  → Driven mode: admin must pick an existing zone name
+// required=false → Drawn mode:  free-text new names are also valid
+function ZoneNameCombobox({ value, onChange, zoneNames, required }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+  const containerRef = useRef(null);
+
+  // Sync internal query when parent clears the value (e.g. after a save)
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  // Close when clicking outside
+  useEffect(() => {
+    function handler(e) {
+      if (!containerRef.current?.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = zoneNames.filter((n) =>
+    n.toLowerCase().includes(query.toLowerCase())
+  );
+
+  function select(name) {
+    setQuery(name);
+    onChange(name);
+    setOpen(false);
+  }
+
+  function handleChange(e) {
+    setQuery(e.target.value);
+    if (!required) onChange(e.target.value); // free text only in Drawn mode
+    setOpen(true);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Escape') setOpen(false);
+  }
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <input
+        type="text"
+        value={query}
+        onChange={handleChange}
+        onFocus={() => setOpen(true)}
+        onKeyDown={handleKeyDown}
+        placeholder={
+          required ? 'Select existing zone…' : 'Zone name or select existing…'
+        }
+        className="w-full bg-panel2 border border-border rounded h-10 px-3 pr-8 text-text text-sm"
+      />
+      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none">
+        ▾
+      </span>
+      {required && (
+        <div className="text-muted text-[10px] mt-1">
+          Must match an existing zone name
+        </div>
+      )}
+      {open && (
+        <div className="absolute left-0 right-0 top-11 z-50 bg-panel border border-border rounded shadow-lg max-h-48 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-muted text-xs">No zones match</div>
+          ) : (
+            filtered.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onMouseDown={() => select(n)}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-panel2 ${
+                  n === query ? 'text-accent font-medium' : 'text-text'
+                }`}
+              >
+                {n}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InlineSave({ feature, onSaved }) {
   const [name, setName] = useState('');
   const [saveAs, setSaveAs] = useState(SAVE_AS.DRAWN);
@@ -123,22 +210,11 @@ function InlineSave({ feature, onSaved }) {
 
   return (
     <div className="space-y-2 border-t border-border pt-2 mt-2">
-      <datalist id="builder-zone-names">
-        {zoneNames.map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
-      <input
-        type="text"
+      <ZoneNameCombobox
         value={name}
-        onChange={(e) => setName(e.target.value)}
-        list="builder-zone-names"
-        placeholder={
-          saveAs === SAVE_AS.DRIVEN
-            ? 'Select existing zone name…'
-            : 'Zone name (e.g. MGM Grand)'
-        }
-        className="w-full bg-panel2 border border-border rounded h-10 px-3 text-text text-sm"
+        onChange={setName}
+        zoneNames={zoneNames}
+        required={saveAs === SAVE_AS.DRIVEN}
       />
       <SegmentedPair
         left="🟡 Drawn (new)"
