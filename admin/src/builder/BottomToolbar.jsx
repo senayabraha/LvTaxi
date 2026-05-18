@@ -7,6 +7,25 @@ import { supabase } from '../supabase.js';
 const SAVE_AS = { DRAWN: 'drawn', DRIVEN: 'driven' };
 
 function NumInput({ value, onChange, min, max, step = 1, suffix }) {
+  const [raw, setRaw] = useState(String(value));
+
+  // Sync display when parent changes the value externally
+  useEffect(() => {
+    setRaw(String(value));
+  }, [value]);
+
+  function handleChange(e) {
+    setRaw(e.target.value);
+    const n = parseFloat(e.target.value);
+    if (!isNaN(n)) onChange(n);
+  }
+
+  function handleBlur() {
+    if (raw === '' || isNaN(parseFloat(raw))) {
+      setRaw(String(value)); // reset display to last valid parent value
+    }
+  }
+
   return (
     <span className="inline-flex items-center gap-1 bg-panel2 border border-border rounded px-2 h-8">
       <input
@@ -14,8 +33,9 @@ function NumInput({ value, onChange, min, max, step = 1, suffix }) {
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        value={raw}
+        onChange={handleChange}
+        onBlur={handleBlur}
         className="w-12 bg-transparent text-text text-sm text-center outline-none"
       />
       {suffix ? <span className="text-muted text-xs">{suffix}</span> : null}

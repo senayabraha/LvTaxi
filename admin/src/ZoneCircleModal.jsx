@@ -13,6 +13,7 @@ export default function ZoneCircleModal({ zone, onClose, onSaved }) {
   const [editLat, setEditLat] = useState(zone.lat);
   const [editLng, setEditLng] = useState(zone.lng);
   const [editRadius, setEditRadius] = useState(zone.radius_meters);
+  const [radiusRaw, setRadiusRaw] = useState(String(zone.radius_meters));
   const [busy, setBusy] = useState(false);
 
   // Build the map once on mount
@@ -155,10 +156,16 @@ export default function ZoneCircleModal({ zone, onClose, onSaved }) {
                 type="number"
                 min={10}
                 max={5000}
-                value={editRadius}
-                onChange={(e) =>
-                  setEditRadius(Math.max(10, parseInt(e.target.value) || 10))
-                }
+                value={radiusRaw}
+                onChange={(e) => {
+                  setRadiusRaw(e.target.value);
+                  const n = parseInt(e.target.value);
+                  if (!isNaN(n) && n >= 10) setEditRadius(n);
+                }}
+                onBlur={() => {
+                  const n = parseInt(radiusRaw);
+                  if (isNaN(n) || n < 10) setRadiusRaw(String(editRadius));
+                }}
                 className="bg-panel2 border border-border rounded h-8 w-24 px-2 text-text text-sm text-center"
               />
               <span className="text-muted text-xs">meters</span>
