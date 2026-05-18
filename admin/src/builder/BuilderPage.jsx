@@ -1,107 +1,94 @@
-import React, { useState } from 'react';
-import MapView from './MapView.jsx';
-import TrackMode from './TrackMode.jsx';
-import DrawMode from './DrawMode.jsx';
-import SavePanel from './SavePanel.jsx';
+import React, { useCallback, useRef, useState } from 'react';
+import { useLeafletMap } from './MapView.jsx';
+import BuilderHeader from './BuilderHeader.jsx';
+import BottomToolbar from './BottomToolbar.jsx';
+import PointsListSheet from './PointsListSheet.jsx';
+import { useTrackController } from './useTrackController.js';
+import { useDrawController } from './useDrawController.js';
 
-const TAB = { DRAW: 'draw', TRACK: 'track' };
+const MODE = { TRACK: 'track', DRAW: 'draw' };
 
 export default function BuilderPage() {
-  const [mode, setMode] = useState(TAB.DRAW);
+  const [mode, setMode] = useState(MODE.DRAW);
   const [feature, setFeature] = useState(null);
-  const [bumpKey, setBumpKey] = useState(0);
+  const [showPoints, setShowPoints] = useState(false);
 
-  function reset() {
-    setFeature(null);
-    setBumpKey((k) => k + 1);
-  }
+  const mapContainerRef = useRef(null);
+  const { mapRef, ready, layer, toggleLayer, findMe } =
+    useLeafletMap(mapContainerRef);
+
+  const onFeature = useCallback((f) => setFeature(f), []);
+
+  // Hooks gate themselves on mode by accepting map=null when not active.
+  const trackCtrl = useTrackController({
+    map: ready && mode === MODE.TRACK ? mapRef.current : null,
+    onFeature: mode === MODE.TRACK ? onFeature : undefined,
+  });
+  const drawCtrl = useDrawController({
+    map: ready && mode === MODE.DRAW ? mapRef.current : null,
+    onFeature: mode === MODE.DRAW ? onFeature : undefined,
+  });
 
   function switchMode(next) {
+    if (next === mode) return;
     setMode(next);
-    reset();
+    setFeature(null);
+    setShowPoints(false);
   }
 
+  function onSaved() {
+    setFeature(null);
+  }
+
+  const points = mode === MODE.TRACK ? trackCtrl.points : drawCtrl.points;
+
   return (
-    <div className="flex flex-col md:flex-row h-full">
-      {/* Map: takes available width on desktop, fixed height on mobile */}
-      <div className="relative flex-1 min-h-[280px] md:min-h-0">
-        <MapView>
-          {(map) =>
-            mode === TAB.TRACK ? (
-              <Bridge>
-                <TrackMode
-                  key={`track-${bumpKey}`}
-                  map={map}
-                  onPolygonReady={setFeature}
-                />
-              </Bridge>
-            ) : (
-              <Bridge>
-                <DrawMode
-                  key={`draw-${bumpKey}`}
-                  map={map}
-                  onPolygonReady={setFeature}
-                />
-              </Bridge>
-            )
-          }
-        </MapView>
+    <div className="flex flex-col h-full bg-bg">
+      <BuilderHeader
+        mode={mode}
+        onModeChange={switchMode}
+        gpsAccuracy={mode === MODE.TRACK ? trackCtrl.accuracy : null}
+        pointsCount={points.length}
+        elapsedMs={mode === MODE.TRACK ? trackCtrl.elapsed : 0}
+      />
+
+      <div className="relative flex-1 min-h-0">
+        <div ref={mapContainerRef} className="absolute inset-0" />
+        <button
+          onClick={toggleLayer}
+          className="absolute right-3 top-3 z-[600] bg-white text-gray-800 text-xs font-semibold px-3 h-8 rounded-full shadow"
+        >
+          {layer === 'street' ? '🛰 Satellite' : '🗺 Street'}
+        </button>
+        <button
+          onClick={findMe}
+          className="absolute right-3 top-14 z-[600] bg-white text-gray-800 w-8 h-8 rounded-full shadow flex items-center justify-center"
+          title="Center on me"
+        >
+          🎯
+        </button>
       </div>
 
-      {/* Sidebar: right column on desktop, bottom panel on mobile */}
-      <aside className="w-full md:w-[340px] border-t md:border-t-0 md:border-l border-border bg-panel flex flex-col overflow-hidden max-h-[55vh] md:max-h-none">
-        <div className="p-3 sm:p-4 border-b border-border">
-          <div className="text-text font-semibold text-sm mb-2">Builder</div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => switchMode(TAB.DRAW)}
-              className={`flex-1 h-9 rounded text-sm font-medium ${
-                mode === TAB.DRAW
-                  ? 'bg-accent text-bg'
-                  : 'bg-panel2 border border-border text-muted'
-              }`}
-            >
-              ✏️ Draw
-            </button>
-            <button
-              onClick={() => switchMode(TAB.TRACK)}
-              className={`flex-1 h-9 rounded text-sm font-medium ${
-                mode === TAB.TRACK
-                  ? 'bg-accent text-bg'
-                  : 'bg-panel2 border border-border text-muted'
-              }`}
-            >
-              📡 Track
-            </button>
-          </div>
-        </div>
+      <BottomToolbar
+        mode={mode}
+        trackCtrl={trackCtrl}
+        drawCtrl={drawCtrl}
+        feature={feature}
+        onSaved={onSaved}
+        onShowPoints={() => setShowPoints(true)}
+      />
 
-        <div className="flex-1 overflow-auto p-3 sm:p-4 space-y-4">
-          <SavePanel feature={feature} onSaved={reset} />
-
-          <div className="text-muted text-xs leading-relaxed border-t border-border pt-3">
-            <div className="text-text font-semibold mb-1">Tips</div>
-            <ul className="list-disc pl-4 space-y-1">
-              <li>Draw: tap map to add vertices, drag to move, right-click / long-press to delete.</li>
-              <li>Track: walk/drive the lane on a mobile browser for best GPS.</li>
-              <li>After save, toggle "Use Phase B" on the zone row to activate.</li>
-            </ul>
-          </div>
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-// Bridge renders its child as an absolute overlay on the top-left of the map.
-// Narrower on small screens so it doesn't cover the whole map.
-function Bridge({ children }) {
-  return (
-    <div
-      className="absolute top-3 left-3 right-3 sm:right-auto z-[1000] bg-panel/95 border border-border rounded-lg p-3 sm:w-[280px] shadow-lg backdrop-blur"
-      style={{ maxHeight: 'calc(100% - 24px)', overflow: 'auto' }}
-    >
-      {children}
+      <PointsListSheet
+        open={showPoints}
+        title={mode === MODE.TRACK ? 'Recorded Points' : 'Drawn Points'}
+        points={points}
+        onDelete={(idx) =>
+          mode === MODE.TRACK
+            ? trackCtrl.deletePoint(idx)
+            : drawCtrl.deletePointByIndex(idx)
+        }
+        onClose={() => setShowPoints(false)}
+      />
     </div>
   );
 }
