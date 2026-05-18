@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TRACK_PHASE } from './useTrackController.js';
 import { DRAW_MODE } from './useDrawController.js';
 import { saveDrawn, saveDriven } from '../lib/zoneStore.js';
+import { supabase } from '../supabase.js';
 
 const SAVE_AS = { DRAWN: 'drawn', DRIVEN: 'driven' };
 
@@ -85,6 +86,17 @@ function InlineSave({ feature, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [zoneNames, setZoneNames] = useState([]);
+
+  useEffect(() => {
+    supabase
+      .from('staging_zones')
+      .select('name')
+      .order('name')
+      .then(({ data }) => {
+        if (data) setZoneNames(data.map((r) => r.name));
+      });
+  }, []);
 
   const canSave = !!feature && !!name.trim() && !busy;
 
@@ -111,11 +123,21 @@ function InlineSave({ feature, onSaved }) {
 
   return (
     <div className="space-y-2 border-t border-border pt-2 mt-2">
+      <datalist id="builder-zone-names">
+        {zoneNames.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
       <input
         type="text"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="Zone name (e.g. MGM Grand)"
+        list="builder-zone-names"
+        placeholder={
+          saveAs === SAVE_AS.DRIVEN
+            ? 'Select existing zone name…'
+            : 'Zone name (e.g. MGM Grand)'
+        }
         className="w-full bg-panel2 border border-border rounded h-10 px-3 text-text text-sm"
       />
       <SegmentedPair

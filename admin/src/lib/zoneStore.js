@@ -1,10 +1,77 @@
 import { supabase } from '../supabase.js';
 import { centroidOf, radiusMeters, normalizeName } from '../geo.js';
 
-// Wraps every Supabase write for zones. Both UploadModal and Builder
-// SavePanel go through this. After every write, regenerateSnapshot()
-// rewrites zones.geojson in Storage so the DB and the file stay in sync.
+// ── Debounced snapshot regeneration ────────────────────────────────────────
+// Coalesces rapid toggle changes into a single Storage write.
+let _snapTimer = null;
+function scheduleSnapshot() {
+  clearTimeout(_snapTimer);
+  _snapTimer = setTimeout(() => {
+    regenerateSnapshot().catch((err) =>
+      console.warn('[zoneStore] snapshot regen failed', err)
+    );
+  }, 800);
+}
 
+// ── Audit log (best-effort — fails gracefully if table absent) ──────────────
+export async function writeAuditLog({ zone_id, zone_name, field, old_value, new_value }) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  supabase
+    .from('zone_audit_log')
+    .insert({
+      zone_id,
+      zone_name,
+      field,
+      old_value: old_value == null ? null : JSON.stringify(old_value),
+      new_value: new_value == null ? null : JSON.stringify(new_value),
+      admin_id: session?.user?.id ?? null,
+      changed_at: new Date().toISOString(),
+    })
+    .then(({ error }) => {
+      if (error) console.debug('[zoneStore] audit log write skipped:', error.message);
+    });
+}
+
+// ── Zone field update (used by ZonesPage toggles) ───────────────────────────
+export async function updateZoneFields(zone, patch) {
+  const { error } = await supabase
+    .from('staging_zones')
+    .update(patch)
+    .eq('id', zone.id);
+  if (error) throw error;
+
+  for (const [field, newValue] of Object.entries(patch)) {
+    writeAuditLog({
+      zone_id: zone.id,
+      zone_name: zone.name,
+      field,
+      old_value: zone[field],
+      new_value: newValue,
+    });
+  }
+
+  scheduleSnapshot();
+}
+
+// ── Delete zone ─────────────────────────────────────────────────────────────
+export async function deleteZone(id, name) {
+  const { error } = await supabase.from('staging_zones').delete().eq('id', id);
+  if (error) throw error;
+
+  writeAuditLog({
+    zone_id: id,
+    zone_name: name ?? id,
+    field: 'deleted',
+    old_value: 'exists',
+    new_value: null,
+  });
+
+  scheduleSnapshot();
+}
+
+// ── Save drawn polygon (new zone or update existing) ────────────────────────
 export async function saveDrawn({ name, feature }) {
   const cleanName = normalizeName(name);
   if (!cleanName) throw new Error('Zone name required');
@@ -44,13 +111,19 @@ export async function saveDrawn({ name, feature }) {
       { onConflict: 'zone_id', ignoreDuplicates: true }
     );
 
-  regenerateSnapshot().catch((err) =>
-    console.warn('[zoneStore] snapshot regen failed', err)
-  );
+  writeAuditLog({
+    zone_id: upserted.id,
+    zone_name: cleanName,
+    field: 'drawn_polygon',
+    old_value: null,
+    new_value: 'set',
+  });
+  scheduleSnapshot();
 
   return upserted;
 }
 
+// ── Save driven polygon (update existing zone only) ─────────────────────────
 export async function saveDriven({ name, feature }) {
   const cleanName = normalizeName(name);
   if (!cleanName) throw new Error('Zone name required');
@@ -73,14 +146,19 @@ export async function saveDriven({ name, feature }) {
     .eq('id', existing.id);
   if (updErr) throw updErr;
 
-  regenerateSnapshot().catch((err) =>
-    console.warn('[zoneStore] snapshot regen failed', err)
-  );
+  writeAuditLog({
+    zone_id: existing.id,
+    zone_name: cleanName,
+    field: 'driven_polygon',
+    old_value: null,
+    new_value: 'set',
+  });
+  scheduleSnapshot();
 
   return existing;
 }
 
-// Bulk upsert used by UploadModal "Drawn" path.
+// ── Bulk upsert drawn polygons (UploadModal Phase A) ────────────────────────
 export async function bulkUpsertDrawn(rows) {
   const payload = rows.map((r) => ({
     name: normalizeName(r.name),
@@ -112,37 +190,32 @@ export async function bulkUpsertDrawn(rows) {
       .upsert(statRows, { onConflict: 'zone_id', ignoreDuplicates: true });
   }
 
-  regenerateSnapshot().catch((err) =>
-    console.warn('[zoneStore] snapshot regen failed', err)
-  );
-
+  scheduleSnapshot();
   return upserted ?? [];
 }
 
-// Bulk update used by UploadModal "Driven" path.
+// ── Bulk update driven polygons (UploadModal Phase B) ───────────────────────
 export async function bulkUpdateDriven(rows) {
   const toUpdate = rows.filter((r) => r.existing);
-  for (const r of toUpdate) {
-    const { error } = await supabase
-      .from('staging_zones')
-      .update({ driven_polygon: r.feature })
-      .eq('name', r.name);
-    if (error) {
-      console.warn('[zoneStore] bulkUpdateDriven failed', r.name, error);
-    }
-  }
 
-  if (toUpdate.length > 0) {
-    regenerateSnapshot().catch((err) =>
-      console.warn('[zoneStore] snapshot regen failed', err)
-    );
-  }
+  await Promise.all(
+    toUpdate.map(async (r) => {
+      const { error } = await supabase
+        .from('staging_zones')
+        .update({ driven_polygon: r.feature })
+        .eq('name', r.name);
+      if (error) {
+        console.warn('[zoneStore] bulkUpdateDriven failed for', r.name, error);
+      }
+    })
+  );
 
+  if (toUpdate.length > 0) scheduleSnapshot();
   return toUpdate.length;
 }
 
-// Regenerates the canonical zones.geojson in Supabase Storage.
-// Best-effort, client-side. If it fails the DB is still authoritative.
+// ── Regenerate canonical zones.geojson in Supabase Storage ─────────────────
+// Best-effort, client-side. DB is always the source of truth.
 export async function regenerateSnapshot() {
   const { data: zones, error } = await supabase
     .from('staging_zones')
@@ -152,9 +225,10 @@ export async function regenerateSnapshot() {
   const features = (zones ?? [])
     .filter((z) => z.drawn_polygon || z.driven_polygon)
     .map((z) => {
-      const f = z.use_driven_polygon && z.driven_polygon
-        ? z.driven_polygon
-        : z.drawn_polygon;
+      const f =
+        z.use_driven_polygon && z.driven_polygon
+          ? z.driven_polygon
+          : z.drawn_polygon;
       return {
         type: 'Feature',
         geometry: f.geometry ?? f,

@@ -1,7 +1,7 @@
 import React from 'react';
 import ZoneRow from './ZoneRow.jsx';
 
-export default function ZoneTable({ zones, stats, onUpdate }) {
+export default function ZoneTable({ zones, stats, onUpdate, onDelete, onPreview }) {
   if (zones.length === 0) {
     return (
       <div className="text-muted text-center py-12">No zones match the filter.</div>
@@ -9,7 +9,7 @@ export default function ZoneTable({ zones, stats, onUpdate }) {
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm" style={{ minWidth: 760 }}>
+      <table className="w-full text-sm" style={{ minWidth: 960 }}>
         <thead className="sticky top-0 bg-bg border-b border-border">
           <tr className="text-muted text-xs uppercase tracking-wide">
             <th className="text-left px-3 sm:px-6 py-3">Name</th>
@@ -23,9 +23,16 @@ export default function ZoneTable({ zones, stats, onUpdate }) {
             >
               Use Phase B
             </th>
+            <th
+              className="text-center px-2 sm:px-3 py-3"
+              title="Visible to drivers in the app"
+            >
+              Visible
+            </th>
             <th className="text-right px-2 sm:px-3 py-3">Cars</th>
             <th className="text-right px-2 sm:px-3 py-3">Wait</th>
             <th className="text-right px-3 sm:px-6 py-3">Updated</th>
+            <th className="text-right px-2 sm:px-3 py-3">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -35,6 +42,8 @@ export default function ZoneTable({ zones, stats, onUpdate }) {
               zone={z}
               stat={stats[z.id]}
               onUpdate={onUpdate}
+              onDelete={onDelete}
+              onPreview={onPreview}
             />
           ))}
         </tbody>
