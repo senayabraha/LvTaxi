@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
 import LoginScreen from './LoginScreen.jsx';
 import MainTabs from './MainTabs.jsx';
+import { ToastProvider } from './useToast.jsx';
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -41,7 +42,15 @@ export default function App() {
       checkRole(data.session);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
+      if (!mounted) return;
+      if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setIsAdmin(false);
+        setLoading(false);
+        setError(null);
+        return;
+      }
       setSession(sess ?? null);
       if (sess) checkRole(sess);
       else {
@@ -60,41 +69,38 @@ export default function App() {
     await supabase.auth.signOut();
   }
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center bg-bg">
-        <div className="text-accent text-xl font-bold">🚕 LvTaxi Admin…</div>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return <LoginScreen />;
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="flex h-full items-center justify-center bg-bg">
-        <div className="max-w-md text-center">
-          <div className="text-bad text-2xl font-bold mb-2">Access denied</div>
-          <div className="text-muted mb-1">
-            Signed in as {session.user.email ?? session.user.phone}
-          </div>
-          <div className="text-muted mb-6">
-            This account is not an admin. Set <code>drivers.role = 'admin'</code> in
-            Supabase, then sign out and back in.
-          </div>
-          {error ? <div className="text-bad text-sm mb-4">{error}</div> : null}
-          <button
-            onClick={signOut}
-            className="bg-panel border border-bad text-bad px-4 py-2 rounded"
-          >
-            Sign out
-          </button>
+  return (
+    <ToastProvider>
+      {loading ? (
+        <div className="flex h-full items-center justify-center bg-bg">
+          <div className="text-accent text-xl font-bold">🚕 LvTaxi Admin…</div>
         </div>
-      </div>
-    );
-  }
-
-  return <MainTabs session={session} onSignOut={signOut} />;
+      ) : !session ? (
+        <LoginScreen />
+      ) : !isAdmin ? (
+        <div className="flex h-full items-center justify-center bg-bg">
+          <div className="max-w-md text-center">
+            <div className="text-bad text-2xl font-bold mb-2">Access denied</div>
+            <div className="text-muted mb-1">
+              Signed in as {session.user.email ?? session.user.phone}
+            </div>
+            <div className="text-muted mb-6">
+              This account is not an admin. Set{' '}
+              <code>drivers.role = &apos;admin&apos;</code> in Supabase, then
+              sign out and back in.
+            </div>
+            {error ? <div className="text-bad text-sm mb-4">{error}</div> : null}
+            <button
+              onClick={signOut}
+              className="bg-panel border border-bad text-bad px-4 py-2 rounded"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      ) : (
+        <MainTabs session={session} onSignOut={signOut} />
+      )}
+    </ToastProvider>
+  );
 }

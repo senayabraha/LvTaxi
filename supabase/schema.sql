@@ -174,6 +174,34 @@ create index if not exists zone_departures_zone_time on zone_departures(zone_id,
 
 
 
+-- Admin audit log: immutable record of every zone field change/delete.
+-- zone_id has no FK so records survive zone deletion.
+create table if not exists zone_audit_log (
+  id          uuid        primary key default gen_random_uuid(),
+  zone_id     uuid        not null,
+  zone_name   text        not null,
+  field       text        not null,
+  old_value   text,
+  new_value   text,
+  admin_id    uuid        references drivers(id) on delete set null,
+  changed_at  timestamptz not null default now()
+);
+
+create index if not exists zone_audit_log_zone_id    on zone_audit_log(zone_id);
+create index if not exists zone_audit_log_changed_at on zone_audit_log(changed_at desc);
+
+alter table zone_audit_log enable row level security;
+
+create policy "audit log admin read"
+  on zone_audit_log for select
+  to authenticated
+  using (is_admin(auth.uid()));
+
+create policy "audit log admin insert"
+  on zone_audit_log for insert
+  to authenticated
+  with check (is_admin(auth.uid()));
+
 -- needed for trajectory upsert in visitProcessor (onConflict: visit_id)
 alter table trajectories add constraint trajectories_visit_id_key unique (visit_id);
 
