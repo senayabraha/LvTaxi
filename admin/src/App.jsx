@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
 import LoginScreen from './LoginScreen.jsx';
 import MainTabs from './MainTabs.jsx';
-import DesktopOnlyGate from './DesktopOnlyGate.jsx';
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -97,9 +96,5 @@ export default function App() {
     );
   }
 
-  return (
-    <DesktopOnlyGate>
-      <MainTabs session={session} onSignOut={signOut} />
-    </DesktopOnlyGate>
-  );
+  return <MainTabs session={session} onSignOut={signOut} />;
 }

@@ -8,35 +8,37 @@ export default function ZoneTable({ zones, stats, onUpdate }) {
     );
   }
   return (
-    <table className="w-full text-sm">
-      <thead className="sticky top-0 bg-bg border-b border-border">
-        <tr className="text-muted text-xs uppercase tracking-wide">
-          <th className="text-left px-6 py-3">Name</th>
-          <th className="text-left px-3 py-3">Phase</th>
-          <th className="text-left px-3 py-3">Polygons</th>
-          <th className="text-center px-3 py-3">Active</th>
-          <th className="text-center px-3 py-3">Coming Soon</th>
-          <th
-            className="text-center px-3 py-3"
-            title="Use the recorded (driven) polygon for detection"
-          >
-            Use Phase B
-          </th>
-          <th className="text-right px-3 py-3">Cars</th>
-          <th className="text-right px-3 py-3">Wait</th>
-          <th className="text-right px-6 py-3">Updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        {zones.map((z) => (
-          <ZoneRow
-            key={z.id}
-            zone={z}
-            stat={stats[z.id]}
-            onUpdate={onUpdate}
-          />
-        ))}
-      </tbody>
-    </table>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm" style={{ minWidth: 760 }}>
+        <thead className="sticky top-0 bg-bg border-b border-border">
+          <tr className="text-muted text-xs uppercase tracking-wide">
+            <th className="text-left px-3 sm:px-6 py-3">Name</th>
+            <th className="text-left px-2 sm:px-3 py-3">Phase</th>
+            <th className="text-left px-2 sm:px-3 py-3">Polygons</th>
+            <th className="text-center px-2 sm:px-3 py-3">Active</th>
+            <th className="text-center px-2 sm:px-3 py-3">Coming Soon</th>
+            <th
+              className="text-center px-2 sm:px-3 py-3"
+              title="Use the recorded (driven) polygon for detection"
+            >
+              Use Phase B
+            </th>
+            <th className="text-right px-2 sm:px-3 py-3">Cars</th>
+            <th className="text-right px-2 sm:px-3 py-3">Wait</th>
+            <th className="text-right px-3 sm:px-6 py-3">Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {zones.map((z) => (
+            <ZoneRow
+              key={z.id}
+              zone={z}
+              stat={stats[z.id]}
+              onUpdate={onUpdate}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

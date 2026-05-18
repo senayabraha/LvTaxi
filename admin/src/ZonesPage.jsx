@@ -107,8 +107,8 @@ export default function ZonesPage({ onCounts }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-4 px-6 py-3 border-b border-border bg-panel/40">
-        <div className="flex items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 sm:px-6 py-3 border-b border-border bg-panel/40">
+        <div className="flex items-center gap-1.5 text-xs flex-wrap">
           <span className="text-muted">Filter:</span>
           {[
             { k: 'all', label: 'All' },
@@ -130,7 +130,7 @@ export default function ZonesPage({ onCounts }) {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-1.5 text-xs flex-wrap">
           <span className="text-muted">Sort:</span>
           {[
             { k: 'name', label: 'Name' },
@@ -152,7 +152,7 @@ export default function ZonesPage({ onCounts }) {
         </div>
         <button
           onClick={() => setShowUpload(true)}
-          className="ml-auto bg-accent text-bg font-semibold px-3 py-1.5 rounded text-xs"
+          className="ml-auto bg-accent text-bg font-semibold px-3 py-1.5 rounded text-xs whitespace-nowrap"
         >
           📂 Upload GeoJSON
         </button>

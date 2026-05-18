@@ -22,8 +22,9 @@ export default function BuilderPage() {
   }
 
   return (
-    <div className="flex h-full">
-      <div className="flex-1 relative">
+    <div className="flex flex-col md:flex-row h-full">
+      {/* Map: takes available width on desktop, fixed height on mobile */}
+      <div className="relative flex-1 min-h-[280px] md:min-h-0">
         <MapView>
           {(map) =>
             mode === TAB.TRACK ? (
@@ -32,7 +33,6 @@ export default function BuilderPage() {
                   key={`track-${bumpKey}`}
                   map={map}
                   onPolygonReady={setFeature}
-                  asControls={false}
                 />
               </Bridge>
             ) : (
@@ -41,7 +41,6 @@ export default function BuilderPage() {
                   key={`draw-${bumpKey}`}
                   map={map}
                   onPolygonReady={setFeature}
-                  asControls={false}
                 />
               </Bridge>
             )
@@ -49,8 +48,9 @@ export default function BuilderPage() {
         </MapView>
       </div>
 
-      <aside className="w-[340px] border-l border-border bg-panel flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-border">
+      {/* Sidebar: right column on desktop, bottom panel on mobile */}
+      <aside className="w-full md:w-[340px] border-t md:border-t-0 md:border-l border-border bg-panel flex flex-col overflow-hidden max-h-[55vh] md:max-h-none">
+        <div className="p-3 sm:p-4 border-b border-border">
           <div className="text-text font-semibold text-sm mb-2">Builder</div>
           <div className="flex gap-2">
             <button
@@ -76,14 +76,14 @@ export default function BuilderPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-4 space-y-4">
+        <div className="flex-1 overflow-auto p-3 sm:p-4 space-y-4">
           <SavePanel feature={feature} onSaved={reset} />
 
           <div className="text-muted text-xs leading-relaxed border-t border-border pt-3">
             <div className="text-text font-semibold mb-1">Tips</div>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Draw: click map to add vertices, drag to move, right-click to delete.</li>
-              <li>Track: walk/drive the lane while logged in on a mobile browser for best GPS.</li>
+              <li>Draw: tap map to add vertices, drag to move, right-click / long-press to delete.</li>
+              <li>Track: walk/drive the lane on a mobile browser for best GPS.</li>
               <li>After save, toggle "Use Phase B" on the zone row to activate.</li>
             </ul>
           </div>
@@ -94,12 +94,11 @@ export default function BuilderPage() {
 }
 
 // Bridge renders its child as an absolute overlay on the top-left of the map.
-// This lets TrackMode/DrawMode own both the Leaflet side effects AND the
-// controls UI in one component without React portal gymnastics.
+// Narrower on small screens so it doesn't cover the whole map.
 function Bridge({ children }) {
   return (
     <div
-      className="absolute top-3 left-3 z-[1000] bg-panel/95 border border-border rounded-lg p-3 w-[280px] shadow-lg backdrop-blur"
+      className="absolute top-3 left-3 right-3 sm:right-auto z-[1000] bg-panel/95 border border-border rounded-lg p-3 sm:w-[280px] shadow-lg backdrop-blur"
       style={{ maxHeight: 'calc(100% - 24px)', overflow: 'auto' }}
     >
       {children}

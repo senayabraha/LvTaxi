@@ -94,33 +94,33 @@ export default function ZoneRow({ zone, stat, onUpdate }) {
 
   return (
     <tr className="border-b border-border hover:bg-panel/50">
-      <td className="px-6 py-3 text-text font-medium">
+      <td className="px-3 sm:px-6 py-3 text-text font-medium">
         {zone.name}
         {saving ? (
           <span className="ml-2 text-muted text-xs">saving…</span>
         ) : null}
       </td>
-      <td className="px-3 py-3">
+      <td className="px-2 sm:px-3 py-3">
         <PhaseBadge zone={zone} />
       </td>
-      <td className="px-3 py-3">
+      <td className="px-2 sm:px-3 py-3">
         <PolygonStatus zone={zone} />
       </td>
-      <td className="px-3 py-3 text-center">
+      <td className="px-2 sm:px-3 py-3 text-center">
         <Toggle
           value={!!zone.active}
           onChange={(v) => toggle('active', v)}
           color="#22C55E"
         />
       </td>
-      <td className="px-3 py-3 text-center">
+      <td className="px-2 sm:px-3 py-3 text-center">
         <Toggle
           value={!!zone.is_coming_soon}
           onChange={(v) => toggle('is_coming_soon', v)}
           color="#EAB308"
         />
       </td>
-      <td className="px-3 py-3 text-center">
+      <td className="px-2 sm:px-3 py-3 text-center">
         <div
           className="inline-flex flex-col items-center"
           title={
@@ -140,9 +140,9 @@ export default function ZoneRow({ zone, stat, onUpdate }) {
           ) : null}
         </div>
       </td>
-      <td className="px-3 py-3 text-right tabular-nums">{cars}</td>
-      <td className="px-3 py-3 text-right tabular-nums">{formatWait(wait)}</td>
-      <td className="px-6 py-3 text-right text-muted text-xs">
+      <td className="px-2 sm:px-3 py-3 text-right tabular-nums">{cars}</td>
+      <td className="px-2 sm:px-3 py-3 text-right tabular-nums">{formatWait(wait)}</td>
+      <td className="px-3 sm:px-6 py-3 text-right text-muted text-xs whitespace-nowrap">
         {timeAgo(stat?.last_updated)}
       </td>
     </tr>

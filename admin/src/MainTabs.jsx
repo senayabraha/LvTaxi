@@ -7,11 +7,9 @@ const TAB = { ZONES: 'zones', BUILDER: 'builder' };
 export default function MainTabs({ session, onSignOut }) {
   const [tab, setTab] = useState(TAB.ZONES);
   const [counts, setCounts] = useState({ total: 0, active: 0, coming: 0 });
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  const handleCounts = useCallback(
-    (c) => setCounts(c),
-    []
-  );
+  const handleCounts = useCallback((c) => setCounts(c), []);
 
   useEffect(() => {
     function onKey(e) {
@@ -23,46 +21,87 @@ export default function MainTabs({ session, onSignOut }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const userLabel = session.user.email ?? session.user.phone ?? '—';
+
   return (
     <div className="flex flex-col h-full bg-bg">
-      <header className="flex items-center justify-between px-6 py-3 border-b border-border bg-panel">
-        <div className="flex items-baseline gap-6">
-          <div className="text-accent text-2xl font-bold">🚕 LvTaxi Admin</div>
-          {tab === TAB.ZONES ? (
-            <div className="text-muted text-sm">
-              <span className="text-good font-medium">{counts.active}</span> active
-              ·{' '}
-              <span className="text-warn font-medium">{counts.coming}</span>{' '}
-              coming soon ·{' '}
-              <span className="text-text font-medium">{counts.total}</span> total
-            </div>
-          ) : (
-            <div className="text-muted text-sm">Geofence Builder</div>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <TabButton
-            label="Zones"
-            shortcut="1"
-            active={tab === TAB.ZONES}
-            onClick={() => setTab(TAB.ZONES)}
-          />
-          <TabButton
-            label="Builder"
-            shortcut="2"
-            active={tab === TAB.BUILDER}
-            onClick={() => setTab(TAB.BUILDER)}
-          />
-          <div className="w-px h-6 bg-border mx-2" />
-          <div className="text-muted text-xs">
-            {session.user.email ?? session.user.phone}
+      <header className="border-b border-border bg-panel">
+        {/* Row 1: brand + tabs + account menu */}
+        <div className="flex items-center justify-between px-3 sm:px-6 py-2 gap-2">
+          <div className="text-accent text-lg sm:text-2xl font-bold whitespace-nowrap">
+            🚕 LvTaxi Admin
           </div>
-          <button
-            onClick={onSignOut}
-            className="bg-panel2 border border-border text-muted px-3 py-1.5 rounded text-sm hover:text-text"
-          >
-            Sign out
-          </button>
+
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <TabButton
+              label="Zones"
+              shortcut="1"
+              active={tab === TAB.ZONES}
+              onClick={() => setTab(TAB.ZONES)}
+            />
+            <TabButton
+              label="Builder"
+              shortcut="2"
+              active={tab === TAB.BUILDER}
+              onClick={() => setTab(TAB.BUILDER)}
+            />
+
+            {/* Desktop: show email + sign out inline */}
+            <div className="hidden md:flex items-center gap-2 ml-2 pl-3 border-l border-border">
+              <div className="text-muted text-xs max-w-[180px] truncate">
+                {userLabel}
+              </div>
+              <button
+                onClick={onSignOut}
+                className="bg-panel2 border border-border text-muted px-3 py-1.5 rounded text-sm hover:text-text"
+              >
+                Sign out
+              </button>
+            </div>
+
+            {/* Mobile: hamburger that opens the account menu */}
+            <div className="md:hidden relative">
+              <button
+                onClick={() => setMenuOpen((o) => !o)}
+                className="bg-panel2 border border-border text-muted w-9 h-9 rounded flex items-center justify-center"
+                aria-label="Account menu"
+              >
+                ⋮
+              </button>
+              {menuOpen ? (
+                <div
+                  className="absolute right-0 top-11 z-50 bg-panel2 border border-border rounded shadow-lg py-2 w-56"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <div className="px-3 py-1 text-muted text-xs truncate">
+                    {userLabel}
+                  </div>
+                  <button
+                    onClick={onSignOut}
+                    className="w-full text-left px-3 py-2 text-bad text-sm hover:bg-panel"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {/* Row 2: context line (counts / page name) */}
+        <div className="px-3 sm:px-6 pb-2 text-muted text-xs">
+          {tab === TAB.ZONES ? (
+            <>
+              <span className="text-good font-medium">{counts.active}</span> active
+              {' · '}
+              <span className="text-warn font-medium">{counts.coming}</span>{' '}
+              coming soon
+              {' · '}
+              <span className="text-text font-medium">{counts.total}</span> total
+            </>
+          ) : (
+            <>Geofence Builder</>
+          )}
         </div>
       </header>
 
@@ -78,7 +117,7 @@ function TabButton({ label, shortcut, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5 ${
+      className={`px-2.5 sm:px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5 ${
         active
           ? 'bg-accent text-bg'
           : 'bg-panel2 border border-border text-muted hover:text-text'
@@ -87,7 +126,7 @@ function TabButton({ label, shortcut, active, onClick }) {
     >
       {label}
       <span
-        className={`text-[10px] font-mono ${
+        className={`hidden sm:inline text-[10px] font-mono ${
           active ? 'text-bg/70' : 'text-muted'
         }`}
       >

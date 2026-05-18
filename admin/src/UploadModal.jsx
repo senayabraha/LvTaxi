@@ -126,8 +126,8 @@ export default function UploadModal({ onClose, onDone }) {
   const skipCount = mode === MODE.DRIVEN ? newCount : 0;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-panel border border-border rounded-lg w-full max-w-2xl max-h-[80vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-panel border border-border rounded-t-lg sm:rounded-lg w-full sm:max-w-2xl max-h-[90vh] sm:max-h-[80vh] flex flex-col">
         <header className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div className="text-text font-semibold">Upload GeoJSON</div>
           <button
