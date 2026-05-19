@@ -29,7 +29,7 @@ The Service displays live counts of drivers in staging zones, estimated wait tim
 
 ## 5. Location data and tracking
 
-The App collects foreground and background location data as described in our **Privacy Policy** ([https://lvtaxi.app/privacy](https://lvtaxi.app/privacy)). By using the Service, you acknowledge that:
+The App collects foreground and background location data as described in our **Privacy Policy** ([https://senayabraha.github.io/lvtaxi/privacy](https://senayabraha.github.io/lvtaxi/privacy)). By using the Service, you acknowledge that:
 - Background location collection continues while the App's "Working" toggle is off, at a reduced rate, to maintain accurate live counts.
 - You can revoke the App's location permissions at any time through your device settings, which will disable background-dependent features.
 
