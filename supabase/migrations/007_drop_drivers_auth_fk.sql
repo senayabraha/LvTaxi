@@ -21,7 +21,7 @@ begin
   from pg_constraint
   where conrelid = 'public.drivers'::regclass
     and contype = 'f'
-    and (select array_agg(attname) from pg_attribute
+    and (select array_agg(attname::text) from pg_attribute
          where attrelid = conrelid and attnum = any(conkey)) = array['id']
     and confrelid = 'auth.users'::regclass;
 
