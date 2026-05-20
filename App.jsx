@@ -13,6 +13,7 @@ import { setupSessionListener } from './src/lib/sessionManager';
 import SplashScreen from './src/screens/SplashScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import NameScreen from './src/screens/NameScreen';
+import PasswordResetScreen from './src/screens/PasswordResetScreen';
 import LocationPermissionScreen from './src/screens/LocationPermissionScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -84,6 +85,7 @@ function Root() {
   const session = useSelector((s) => s.auth.session);
   const isLoading = useSelector((s) => s.auth.isLoading);
   const profile = useSelector((s) => s.drivers.profile);
+  const passwordRecovery = useSelector((s) => s.auth.passwordRecovery);
 
   useEffect(() => {
     const unsub = setupSessionListener(dispatch);
@@ -97,7 +99,13 @@ function Root() {
   return (
     <NavigationContainer theme={navTheme}>
       <StatusBar style="light" />
-      {showMain ? <MainTabs /> : <AuthStack />}
+      {passwordRecovery ? (
+        <PasswordResetScreen />
+      ) : showMain ? (
+        <MainTabs />
+      ) : (
+        <AuthStack />
+      )}
     </NavigationContainer>
   );
 }

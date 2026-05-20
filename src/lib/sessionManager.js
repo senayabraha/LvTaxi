@@ -5,12 +5,13 @@ import {
   clearSession,
   setIsAdmin,
   setLoading,
+  setPasswordRecovery,
 } from '../store/authSlice';
 import { setProfile, clearProfile } from '../store/driversSlice';
 import { stopLocationTracking } from './locationEngine';
 import { stopGeofenceManager } from './geofenceEngine';
 
-async function handleAuthDeepLink(url) {
+async function handleAuthDeepLink(url, dispatch) {
   if (!url) return;
   const parsed = Linking.parse(url);
   const params = { ...(parsed.queryParams || {}) };
@@ -22,12 +23,17 @@ async function handleAuthDeepLink(url) {
   }
   const accessToken = params.access_token;
   const refreshToken = params.refresh_token;
+  const isRecovery = params.type === 'recovery';
   if (accessToken && refreshToken) {
     const { error } = await supabase.auth.setSession({
       access_token: accessToken,
       refresh_token: refreshToken,
     });
-    if (error) console.warn('[sessionManager] deep-link setSession failed', error.message);
+    if (error) {
+      console.warn('[sessionManager] deep-link setSession failed', error.message);
+      return;
+    }
+    if (isRecovery && dispatch) dispatch(setPasswordRecovery(true));
   }
 }
 
@@ -66,7 +72,10 @@ export function setupSessionListener(dispatch) {
 
   const { data: sub } = supabase.auth.onAuthStateChange(
     async (event, session) => {
-      if (event === 'SIGNED_IN') {
+      if (event === 'PASSWORD_RECOVERY') {
+        dispatch(setSession(session));
+        dispatch(setPasswordRecovery(true));
+      } else if (event === 'SIGNED_IN') {
         dispatch(setSession(session));
         if (session?.user?.id) {
           await fetchAndSetProfile(dispatch, session.user.id);
@@ -76,13 +85,17 @@ export function setupSessionListener(dispatch) {
       } else if (event === 'SIGNED_OUT') {
         dispatch(clearSession());
         dispatch(clearProfile());
+      } else if (event === 'USER_UPDATED') {
+        dispatch(setSession(session));
       }
     }
   );
 
-  Linking.getInitialURL().then(handleAuthDeepLink).catch(() => {});
+  Linking.getInitialURL()
+    .then((url) => handleAuthDeepLink(url, dispatch))
+    .catch(() => {});
   const linkSub = Linking.addEventListener('url', ({ url }) => {
-    handleAuthDeepLink(url);
+    handleAuthDeepLink(url, dispatch);
   });
 
   return () => {

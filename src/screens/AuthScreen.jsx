@@ -15,9 +15,9 @@ import { supabase } from '../lib/supabase';
 import { setSession } from '../store/authSlice';
 
 const EMAIL_REDIRECT_URL = Linking.createURL('auth-callback');
+const PASSWORD_RESET_URL = Linking.createURL('password-reset');
 
 const TAB = { PHONE: 'phone', EMAIL: 'email' };
-const EMAIL_MODE = { SIGN_IN: 'sign_in', SIGN_UP: 'sign_up' };
 
 function formatPhoneDisplay(digits) {
   const d = digits.slice(0, 10);
@@ -46,8 +46,8 @@ async function driverRowExists(userId) {
 
 export default function AuthScreen({ navigation }) {
   const dispatch = useDispatch();
-  const [tab, setTab] = useState(TAB.EMAIL);
-  const SHOW_PHONE_TAB = false;
+  const [tab, setTab] = useState(TAB.PHONE);
+  const SHOW_PHONE_TAB = true;
 
   // Phone state
   const [phoneDigits, setPhoneDigits] = useState('');
@@ -57,11 +57,12 @@ export default function AuthScreen({ navigation }) {
   const otpRefs = useRef([]);
 
   // Email state
-  const [emailMode, setEmailMode] = useState(EMAIL_MODE.SIGN_IN);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [needsSignUp, setNeedsSignUp] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   // Shared
   const [busy, setBusy] = useState(false);
@@ -143,39 +144,97 @@ export default function AuthScreen({ navigation }) {
 
   async function emailContinue() {
     setError(null);
+    setNeedsSignUp(false);
     if (!email || !password) {
       setError('Email and password are required.');
       return;
     }
     setBusy(true);
-    if (emailMode === EMAIL_MODE.SIGN_IN) {
-      const { data, error: err } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-      setBusy(false);
-      if (err) {
-        setError('Incorrect email or password.');
-        return;
-      }
+    const { data, error: err } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    setBusy(false);
+    if (!err) {
       if (data?.session) await onPostAuthSession(data.session);
-    } else {
-      const { data, error: err } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: { emailRedirectTo: EMAIL_REDIRECT_URL },
-      });
-      setBusy(false);
-      if (err) {
-        setError(err.message || 'Could not create account.');
-        return;
-      }
-      if (data?.session) {
-        await onPostAuthSession(data.session);
-      } else {
-        setEmailSent(true);
-      }
+      return;
     }
+    const msg = (err.message || '').toLowerCase();
+    if (msg.includes('invalid login') || msg.includes('invalid credentials')) {
+      setNeedsSignUp(true);
+      setError("No account found for this email. Create one?");
+      return;
+    }
+    setError(err.message || 'Could not sign in.');
+  }
+
+  async function emailCreateAccount() {
+    setError(null);
+    if (!email || !password) {
+      setError('Email and password are required.');
+      return;
+    }
+    setBusy(true);
+    const { data, error: err } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: EMAIL_REDIRECT_URL },
+    });
+    setBusy(false);
+    setNeedsSignUp(false);
+    if (err) {
+      setError(err.message || 'Could not create account.');
+      return;
+    }
+    if (data?.session) {
+      await onPostAuthSession(data.session);
+    } else {
+      setEmailSent(true);
+    }
+  }
+
+  async function sendPasswordReset() {
+    setError(null);
+    if (!email.trim()) {
+      setError('Enter your email above first.');
+      return;
+    }
+    setBusy(true);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(
+      email.trim(),
+      { redirectTo: PASSWORD_RESET_URL }
+    );
+    setBusy(false);
+    if (err) {
+      setError(err.message || 'Could not send reset email.');
+      return;
+    }
+    setResetSent(true);
+  }
+
+  if (resetSent) {
+    return (
+      <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
+        <View className="flex-1 px-6 justify-center">
+          <Text className="text-accent text-3xl font-bold mb-3">
+            🔑 Reset link sent
+          </Text>
+          <Text className="text-text mb-6">
+            We sent a password reset link to {email}. Tap the link, choose a
+            new password, then come back and sign in.
+          </Text>
+          <Pressable
+            onPress={() => {
+              setResetSent(false);
+              setError(null);
+            }}
+            className="bg-accent rounded-lg py-3 items-center"
+          >
+            <Text className="text-bg font-bold">Back to sign in</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   if (emailSent) {
@@ -192,7 +251,8 @@ export default function AuthScreen({ navigation }) {
           <Pressable
             onPress={() => {
               setEmailSent(false);
-              setEmailMode(EMAIL_MODE.SIGN_IN);
+              setNeedsSignUp(false);
+              setError(null);
             }}
             className="bg-accent rounded-lg py-3 items-center"
           >
@@ -334,35 +394,16 @@ export default function AuthScreen({ navigation }) {
             )
           ) : (
             <>
-              <View className="flex-row mb-3 bg-panel border border-border rounded-lg p-1">
-                {[
-                  { k: EMAIL_MODE.SIGN_IN, label: 'Sign in' },
-                  { k: EMAIL_MODE.SIGN_UP, label: 'Sign up' },
-                ].map((m) => {
-                  const active = emailMode === m.k;
-                  return (
-                    <Pressable
-                      key={m.k}
-                      onPress={() => {
-                        setEmailMode(m.k);
-                        setError(null);
-                      }}
-                      className={`flex-1 py-2 rounded-md items-center ${
-                        active ? 'bg-panel2' : ''
-                      }`}
-                    >
-                      <Text className={active ? 'text-accent' : 'text-muted'}>
-                        {m.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
               <Text className="text-muted text-xs mb-1">Email</Text>
               <TextInput
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(t) => {
+                  setEmail(t);
+                  if (needsSignUp) {
+                    setNeedsSignUp(false);
+                    setError(null);
+                  }
+                }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -375,7 +416,13 @@ export default function AuthScreen({ navigation }) {
               <View className="flex-row items-center bg-panel border border-border rounded-lg px-3 h-14">
                 <TextInput
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(t) => {
+                    setPassword(t);
+                    if (needsSignUp) {
+                      setNeedsSignUp(false);
+                      setError(null);
+                    }
+                  }}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   placeholder="••••••••"
@@ -389,13 +436,21 @@ export default function AuthScreen({ navigation }) {
                 </Pressable>
               </View>
 
+              <Pressable
+                disabled={busy}
+                onPress={sendPasswordReset}
+                className="mt-3 self-end"
+              >
+                <Text className="text-accent text-sm">Forgot password?</Text>
+              </Pressable>
+
               {error ? (
                 <Text className="text-bad mt-2 text-sm">{error}</Text>
               ) : null}
 
               <Pressable
                 disabled={busy}
-                onPress={emailContinue}
+                onPress={needsSignUp ? emailCreateAccount : emailContinue}
                 className={`mt-5 rounded-lg py-3 items-center ${
                   busy ? 'bg-panel border border-border' : 'bg-accent'
                 }`}
@@ -404,7 +459,7 @@ export default function AuthScreen({ navigation }) {
                   <ActivityIndicator color="#0B0F1A" />
                 ) : (
                   <Text className="text-bg font-bold">
-                    {emailMode === EMAIL_MODE.SIGN_IN ? 'Sign in' : 'Create account'}
+                    {needsSignUp ? 'Create account' : 'Continue'}
                   </Text>
                 )}
               </Pressable>

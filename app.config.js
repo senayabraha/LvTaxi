@@ -28,9 +28,9 @@ module.exports = {
         'expo-location',
         {
           locationAlwaysAndWhenInUsePermission:
-            'LvTaxi uses your location to detect when you enter and leave staging zones, even when the app is in the background.',
+            'LvTaxi needs background location to detect when you enter or leave airport and casino staging zones so your place in the taxi queue is updated automatically — including when your screen is off or the app is not in the foreground.',
           locationWhenInUsePermission:
-            'LvTaxi uses your location to show nearby staging zones and your wait position.',
+            'LvTaxi uses your location to show nearby staging zones, your distance to each zone, and your current position in the queue.',
           isAndroidBackgroundLocationEnabled: true,
         },
       ],
@@ -50,11 +50,11 @@ module.exports = {
       },
       infoPlist: {
         NSLocationWhenInUseUsageDescription:
-          'LvTaxi uses your location to show nearby staging zones and your wait position.',
+          'LvTaxi uses your location to show nearby airport and casino staging zones, your distance to each zone, and your current position in the queue.',
         NSLocationAlwaysAndWhenInUseUsageDescription:
-          'LvTaxi tracks your location in the background to detect when you enter and leave staging zones.',
+          'LvTaxi needs background location to detect when you enter or leave staging zones so your queue position updates automatically — including when your screen is off or the app is not in the foreground.',
         NSLocationAlwaysUsageDescription:
-          'LvTaxi tracks your location in the background to detect when you enter and leave staging zones.',
+          'LvTaxi needs background location to detect when you enter or leave staging zones so your queue position updates automatically — including when your screen is off or the app is not in the foreground.',
         UIBackgroundModes: ['location', 'fetch'],
       },
     },
@@ -75,10 +75,11 @@ module.exports = {
       ],
     },
     extra: {
-      supabaseUrl: '',
-      supabasePublishableKey: '',
       privacyPolicyUrl: 'https://lvtaxi.app/privacy',
       termsUrl: 'https://lvtaxi.app/terms',
+      eas: {
+        projectId: process.env.EAS_PROJECT_ID ?? '',
+      },
     },
   },
 };

@@ -4,6 +4,7 @@ const initialState = {
   session: null,
   isLoading: true,
   isAdmin: false,
+  passwordRecovery: false,
 };
 
 const authSlice = createSlice({
@@ -16,6 +17,7 @@ const authSlice = createSlice({
     clearSession(state) {
       state.session = null;
       state.isAdmin = false;
+      state.passwordRecovery = false;
     },
     setIsAdmin(state, action) {
       state.isAdmin = !!action.payload;
@@ -23,9 +25,17 @@ const authSlice = createSlice({
     setLoading(state, action) {
       state.isLoading = !!action.payload;
     },
+    setPasswordRecovery(state, action) {
+      state.passwordRecovery = !!action.payload;
+    },
   },
 });
 
-export const { setSession, clearSession, setIsAdmin, setLoading } =
-  authSlice.actions;
+export const {
+  setSession,
+  clearSession,
+  setIsAdmin,
+  setLoading,
+  setPasswordRecovery,
+} = authSlice.actions;
 export default authSlice.reducer;

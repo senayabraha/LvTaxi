@@ -1,17 +1,9 @@
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import Constants from 'expo-constants';
 
-const url =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ||
-  Constants.expoConfig?.extra?.supabaseUrl ||
-  '';
-
-const publishableKey =
-  process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  Constants.expoConfig?.extra?.supabasePublishableKey ||
-  '';
+const url = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
 
 if (!url || !publishableKey) {
   console.warn(
