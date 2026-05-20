@@ -26,8 +26,8 @@ npm install
    - **Authentication → Providers → Email** → enable (default is fine).
 3. Grab credentials from **Project settings → API**:
    - Project URL
-   - `anon` public key
-   - `service_role` key (used only by the seed script, never shipped to clients)
+   - `publishable` key (formerly `anon` public)
+   - `secret` key (formerly `service_role`; used only by the seed script, never shipped to clients)
 
 ## 3. Environment
 
@@ -35,13 +35,13 @@ Copy `.env.example` to `.env` and fill in:
 
 ```
 EXPO_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 
 SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
+SUPABASE_SECRET_KEY=sb_secret_...
 ```
 
-The `EXPO_PUBLIC_*` vars get inlined into the app bundle at build time. The service-role key is only read by the seed script.
+The `EXPO_PUBLIC_*` vars get inlined into the app bundle at build time. The secret key is only read by the seed script.
 
 ## 4. Seed the database
 

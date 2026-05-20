@@ -20,7 +20,7 @@
  *   - Inserts 8 Coming Soon placeholder zones (no polygon, no usable lat/lng).
  *   - Initializes zone_stats for everything inserted.
  *
- * Requires env: SUPABASE_URL (or EXPO_PUBLIC_SUPABASE_URL), SUPABASE_SERVICE_ROLE_KEY.
+ * Requires env: SUPABASE_URL (or EXPO_PUBLIC_SUPABASE_URL), SUPABASE_SECRET_KEY.
  */
 
 require('dotenv').config();
@@ -35,10 +35,10 @@ const dryRun = args.includes('--dry-run');
 
 const url =
   process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const secretKey = process.env.SUPABASE_SECRET_KEY;
 
-if (!dryRun && (!url || !serviceKey)) {
-  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env');
+if (!dryRun && (!url || !secretKey)) {
+  console.error('Missing SUPABASE_URL or SUPABASE_SECRET_KEY in .env');
   process.exit(1);
 }
 
@@ -214,7 +214,7 @@ async function main() {
     return;
   }
 
-  const supabase = createClient(url, serviceKey, {
+  const supabase = createClient(url, secretKey, {
     auth: { persistSession: false },
   });
 

@@ -5,14 +5,14 @@ const { createClient } = require('@supabase/supabase-js');
 const { STAGING_ZONES } = require('../src/lib/constants');
 
 const url = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const secretKey = process.env.SUPABASE_SECRET_KEY;
 
-if (!url || !serviceKey) {
-  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env');
+if (!url || !secretKey) {
+  console.error('Missing SUPABASE_URL or SUPABASE_SECRET_KEY in .env');
   process.exit(1);
 }
 
-const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
+const supabase = createClient(url, secretKey, { auth: { persistSession: false } });
 
 function mockStats() {
   const cars = Math.floor(Math.random() * 30) + 5;

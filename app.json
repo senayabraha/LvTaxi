@@ -62,7 +62,7 @@
     },
     "extra": {
       "supabaseUrl": "",
-      "supabaseAnonKey": "",
+      "supabasePublishableKey": "",
       "privacyPolicyUrl": "https://lvtaxi.app/privacy",
       "termsUrl": "https://lvtaxi.app/terms"
     }

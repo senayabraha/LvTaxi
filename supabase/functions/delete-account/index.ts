@@ -35,8 +35,12 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    const serviceKey =
+    const publishableKey =
+      Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ??
+      Deno.env.get('SUPABASE_ANON_KEY') ??
+      '';
+    const secretKey =
+      Deno.env.get('SUPABASE_SECRET_KEY') ??
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ??
       Deno.env.get('SERVICE_ROLE_KEY') ??
       '';
@@ -46,7 +50,7 @@ serve(async (req) => {
       return json({ error: 'missing bearer token' }, 401);
     }
 
-    const userClient = createClient(supabaseUrl, anonKey, {
+    const userClient = createClient(supabaseUrl, publishableKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: userData, error: userErr } = await userClient.auth.getUser();
@@ -55,7 +59,7 @@ serve(async (req) => {
     }
     const userId = userData.user.id;
 
-    const admin = createClient(supabaseUrl, serviceKey);
+    const admin = createClient(supabaseUrl, secretKey);
 
     const { error: softErr } = await admin.rpc('soft_delete_driver', {
       p_driver_id: userId,

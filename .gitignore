@@ -2,7 +2,9 @@ node_modules/
 .expo/
 dist/
 web-build/
+.env
 .env.local
+.env.*.local
 *.log
 .DS_Store
 .claude/

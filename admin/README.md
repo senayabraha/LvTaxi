@@ -12,11 +12,11 @@ Minimal web dashboard for managing LvTaxi staging zones.
 ```bash
 cd admin
 npm install
-cp .env.example .env       # fill in VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+cp .env.example .env       # fill in VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY
 npm run dev                # http://localhost:5173
 ```
 
-The keys are the **same anon key** as the mobile app. RLS limits what non-admins can see.
+The keys are the **same publishable key** as the mobile app. RLS limits what non-admins can see.
 
 ## Sign in
 1. Sign in with your normal LvTaxi account (email + password)
@@ -31,4 +31,4 @@ The keys are the **same anon key** as the mobile app. RLS limits what non-admins
 - Upload GeoJSON → preview → bulk import
 
 ## Deploy (Vercel)
-Set the project root to `/admin`, framework preset `Vite`. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as env vars in the Vercel project settings.
+Set the project root to `/admin`, framework preset `Vite`. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` as env vars in the Vercel project settings.
