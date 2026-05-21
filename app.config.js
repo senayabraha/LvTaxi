@@ -75,8 +75,8 @@ module.exports = {
       ],
     },
     extra: {
-      privacyPolicyUrl: 'https://lvtaxi.app/privacy',
-      termsUrl: 'https://lvtaxi.app/terms',
+      privacyPolicyUrl: 'https://lvtaxi.online/privacy',
+      termsUrl: 'https://lvtaxi.online/terms',
       eas: {
         projectId: process.env.EAS_PROJECT_ID ?? '',
       },

@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **Effective date:** May 18, 2026
-**Last updated:** May 18, 2026
+**Last updated:** May 21, 2026
 
 LvTaxi ("we," "us," "our") operates the LvTaxi mobile application (the "App"), which helps taxi and rideshare drivers see live staging zone activity in the Las Vegas metropolitan area. This Privacy Policy explains what information we collect, how we use it, and the choices you have.
 
@@ -70,7 +70,7 @@ We do not transfer your data to advertisers, data brokers, or analytics reseller
 - **Location data points** are retained for up to 90 days in identifiable form, after which they are deleted or aggregated into anonymous statistics.
 - **Aggregated zone statistics** (counts, wait times) are retained indefinitely in non-identifiable form.
 - When you delete your account, we immediately anonymize your driver profile by removing your name, email, phone number, and device tokens; the account is then locked so you cannot sign back in. Historical zone-visit and trajectory records linked to that profile are retained in anonymized form so that aggregate zone statistics remain accurate; these records no longer identify you.
-- Your sign-in record is retained in locked form to prevent the same email address from being re-registered. You may contact **privacy@lvtaxi.app** if you wish that record fully removed.
+- Your sign-in record is retained in locked form to prevent the same email address from being re-registered. You may contact **privacy@lvtaxi.online** if you wish that record fully removed.
 - Backups containing residual identifiable data are purged on a rolling 30-day cycle.
 
 ## 6. Your choices and rights
@@ -79,7 +79,7 @@ You can, at any time:
 - Turn off background location in your device settings. The App will still work in the foreground, but zone-entry detection will be limited.
 - Sign out of the App.
 - **Delete your account directly in the App** via Profile → Delete account. This action is immediate and cannot be undone.
-- Request a copy of the personal information we hold about you by emailing **privacy@lvtaxi.app**.
+- Request a copy of the personal information we hold about you by emailing **privacy@lvtaxi.online**.
 
 If you are in the EEA, UK, or California, you may also have rights to object to processing, restrict processing, or lodge a complaint with your local data protection authority.
 
@@ -102,4 +102,4 @@ We may update this policy. When we do, we will update the "Last updated" date ab
 ## 11. Contact
 
 Questions about this policy or your data:
-**privacy@lvtaxi.app**
+**privacy@lvtaxi.online**

@@ -21,7 +21,7 @@ export default function ProfileScreen() {
         setDeleting(false);
         Alert.alert(
           'Could not delete account',
-          error.message || 'Please try again or contact support@lvtaxi.app.'
+          error.message || 'Please try again or contact support@lvtaxi.online.'
         );
         return;
       }
@@ -30,7 +30,7 @@ export default function ProfileScreen() {
       setDeleting(false);
       Alert.alert(
         'Could not delete account',
-        err?.message || 'Please try again or contact support@lvtaxi.app.'
+        err?.message || 'Please try again or contact support@lvtaxi.online.'
       );
     }
   }

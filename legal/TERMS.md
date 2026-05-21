@@ -1,7 +1,7 @@
 # Terms of Service
 
 **Effective date:** May 18, 2026
-**Last updated:** May 18, 2026
+**Last updated:** May 21, 2026
 
 These Terms of Service ("Terms") govern your access to and use of the LvTaxi mobile application (the "App") and any related services (collectively, the "Service"). By creating an account or using the Service, you agree to be bound by these Terms. If you do not agree, do not use the Service.
 
@@ -11,7 +11,7 @@ You must be at least 18 years old and legally authorized to operate a vehicle fo
 
 ## 2. Your account
 
-You are responsible for the security of your account credentials and for all activity that occurs under your account. Notify us immediately at **support@lvtaxi.app** if you suspect unauthorized access. We may suspend or terminate accounts that we reasonably believe are being used to violate these Terms.
+You are responsible for the security of your account credentials and for all activity that occurs under your account. Notify us immediately at **support@lvtaxi.online** if you suspect unauthorized access. We may suspend or terminate accounts that we reasonably believe are being used to violate these Terms.
 
 ## 3. Permitted use
 
@@ -29,7 +29,7 @@ The Service displays live counts of drivers in staging zones, estimated wait tim
 
 ## 5. Location data and tracking
 
-The App collects foreground and background location data as described in our **Privacy Policy** ([https://senayabraha.github.io/lvtaxi/privacy](https://senayabraha.github.io/lvtaxi/privacy)). By using the Service, you acknowledge that:
+The App collects foreground and background location data as described in our **Privacy Policy** ([https://lvtaxi.online/privacy](https://lvtaxi.online/privacy)). By using the Service, you acknowledge that:
 - Background location collection continues while the App's "Working" toggle is off, at a reduced rate, to maintain accurate live counts.
 - You can revoke the App's location permissions at any time through your device settings, which will disable background-dependent features.
 
@@ -76,4 +76,4 @@ We may update these Terms from time to time. When we make material changes, we w
 ## 15. Contact
 
 Questions about these Terms:
-**support@lvtaxi.app**
+**support@lvtaxi.online**
