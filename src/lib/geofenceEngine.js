@@ -19,6 +19,9 @@ const MIN_GEOFENCE_REFRESH_MS = 30 * 1000;
 
 const activeVisits = new Map();
 const activeZoneById = new Map();
+const pendingEntries = new Map(); // zoneId → { timerId, startedAt }
+const RETRY_INTERVAL_MS = 10_000;
+const MAX_RETRY_MS = 120_000;
 let lastRefreshAnchor = null;
 let refreshTimer = null;
 let lastGeofenceUpdateAt = 0;
@@ -46,33 +49,7 @@ function verifyWithPolygon(zone, lat, lng) {
   }
 }
 
-async function handleEnter(zoneId) {
-  const zone = getZoneById(zoneId);
-  const driverId = store.getState().auth.session?.user?.id ?? null;
-
-  // Native geofence is wider than the actual lane — confirm with polygon.
-  if (zone?.drawn_polygon || zone?.driven_polygon) {
-    let pos = null;
-    try {
-      pos = await Location.getLastKnownPositionAsync({
-        maxAge: 30_000,
-      });
-    } catch (err) {
-      console.warn('[geofenceEngine] getLastKnownPosition failed', err);
-    }
-    if (pos?.coords) {
-      const inside = verifyWithPolygon(
-        zone,
-        pos.coords.latitude,
-        pos.coords.longitude
-      );
-      if (!inside) {
-        console.log('[geofenceEngine] polygon rejected enter for', zone.name);
-        return;
-      }
-    }
-  }
-
+async function completeHandleEnter(zoneId, zone, driverId) {
   store.dispatch(zoneEntered(zoneId));
 
   let visitId = null;
@@ -104,7 +81,67 @@ async function handleEnter(zoneId) {
   );
 }
 
+async function handleEnter(zoneId) {
+  const zone = getZoneById(zoneId);
+  const driverId = store.getState().auth.session?.user?.id ?? null;
+
+  // Native geofence is wider than the actual lane — confirm with polygon.
+  if (zone?.drawn_polygon || zone?.driven_polygon) {
+    let pos = null;
+    try {
+      pos = await Location.getLastKnownPositionAsync({ maxAge: 30_000 });
+    } catch (err) {
+      console.warn('[geofenceEngine] getLastKnownPosition failed', err);
+    }
+    if (pos?.coords) {
+      const inside = verifyWithPolygon(zone, pos.coords.latitude, pos.coords.longitude);
+      if (!inside) {
+        // Driver may be on the loop road heading toward the staging area.
+        // Retry polygon check every 10s for up to 2 minutes before discarding.
+        if (!pendingEntries.has(zoneId)) {
+          console.log('[geofenceEngine] polygon check failed, deferring entry for', zone?.name);
+          const startedAt = Date.now();
+          const timerId = setInterval(async () => {
+            if (Date.now() - startedAt >= MAX_RETRY_MS) {
+              clearInterval(timerId);
+              pendingEntries.delete(zoneId);
+              console.log('[geofenceEngine] deferred entry timed out for', zone?.name);
+              return;
+            }
+            let retryPos = null;
+            try {
+              retryPos = await Location.getLastKnownPositionAsync({ maxAge: 15_000 });
+            } catch {}
+            if (retryPos?.coords) {
+              const nowInside = verifyWithPolygon(zone, retryPos.coords.latitude, retryPos.coords.longitude);
+              if (nowInside) {
+                clearInterval(timerId);
+                pendingEntries.delete(zoneId);
+                console.log('[geofenceEngine] deferred entry confirmed for', zone?.name);
+                await completeHandleEnter(zoneId, zone, driverId);
+              }
+            }
+          }, RETRY_INTERVAL_MS);
+          pendingEntries.set(zoneId, { timerId, startedAt });
+        }
+        return;
+      }
+    }
+  }
+
+  await completeHandleEnter(zoneId, zone, driverId);
+}
+
 async function handleExit(zoneId) {
+  // If the driver exits before the deferred entry confirmed, cancel the retry.
+  if (pendingEntries.has(zoneId)) {
+    const { timerId } = pendingEntries.get(zoneId);
+    clearInterval(timerId);
+    pendingEntries.delete(zoneId);
+    console.log('[geofenceEngine] deferred entry cancelled on exit for', zoneId);
+    return;
+  }
+
   const state = store.getState();
   const entryTime = state.drivers.zoneEntryTime;
   const driverId = state.auth.session?.user?.id ?? null;
@@ -339,6 +376,10 @@ export async function stopGeofenceManager() {
     clearTimeout(pendingDebounceTimer);
     pendingDebounceTimer = null;
   }
+  for (const { timerId } of pendingEntries.values()) {
+    clearInterval(timerId);
+  }
+  pendingEntries.clear();
   if (unsubscribeStore) {
     unsubscribeStore();
     unsubscribeStore = null;

@@ -8,6 +8,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 const MIN_TRAINING_SAMPLES = 100;
 const TRAINING_SAMPLE_LIMIT = 2000;
+const REFERENCE_ROUTE_WEIGHT = 5; // each admin-drawn route counts as this many samples
 
 const VISIT_CLASS = {
   STAGING: 'staging',
@@ -163,16 +164,32 @@ const MODEL_TTL_MS = 5 * 60 * 1000;
 async function getModel(supabase) {
   if (cachedModel && Date.now() - cachedAt < MODEL_TTL_MS) return cachedModel;
 
-  const { data, error } = await supabase
+  const { data: driverSamples, error } = await supabase
     .from('trajectories')
     .select('features, ground_truth')
     .not('ground_truth', 'is', null)
     .limit(TRAINING_SAMPLE_LIMIT);
 
-  if (error || !data || data.length < MIN_TRAINING_SAMPLES) {
-    cachedModel = { trained: false, sampleCount: data?.length ?? 0 };
+  // Load admin-drawn reference routes and repeat each REFERENCE_ROUTE_WEIGHT times
+  // so their clean labels carry more weight than a single unverified driver confirmation.
+  const { data: refRoutes } = await supabase
+    .from('reference_routes')
+    .select('features, route_type');
+
+  const refSamples = (refRoutes ?? []).flatMap((r) =>
+    Array(REFERENCE_ROUTE_WEIGHT).fill({
+      features: r.features,
+      // loop_then_stage visits end in staging — that is what the zone count reflects.
+      ground_truth: r.route_type === 'loop_then_stage' ? VISIT_CLASS.STAGING : r.route_type,
+    })
+  );
+
+  const allSamples = [...(driverSamples ?? []), ...refSamples];
+
+  if (error || allSamples.length < MIN_TRAINING_SAMPLES) {
+    cachedModel = { trained: false, sampleCount: allSamples.length };
   } else {
-    cachedModel = { trained: true, sampleCount: data.length, ...trainModel(data) };
+    cachedModel = { trained: true, sampleCount: allSamples.length, ...trainModel(allSamples) };
   }
   cachedAt = Date.now();
   return cachedModel;

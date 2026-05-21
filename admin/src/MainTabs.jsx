@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import ZonesPage from './ZonesPage.jsx';
 import BuilderPage from './builder/BuilderPage.jsx';
+import TrainingPage from './pages/TrainingPage.jsx';
 
-const TAB = { ZONES: 'zones', BUILDER: 'builder' };
+const TAB = { ZONES: 'zones', BUILDER: 'builder', TRAINING: 'training' };
 
 export default function MainTabs({ session, onSignOut }) {
   const [tab, setTab] = useState(TAB.ZONES);
@@ -16,6 +17,7 @@ export default function MainTabs({ session, onSignOut }) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === '1') setTab(TAB.ZONES);
       if (e.key === '2') setTab(TAB.BUILDER);
+      if (e.key === '3') setTab(TAB.TRAINING);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -44,6 +46,12 @@ export default function MainTabs({ session, onSignOut }) {
               shortcut="2"
               active={tab === TAB.BUILDER}
               onClick={() => setTab(TAB.BUILDER)}
+            />
+            <TabButton
+              label="Training"
+              shortcut="3"
+              active={tab === TAB.TRAINING}
+              onClick={() => setTab(TAB.TRAINING)}
             />
 
             {/* Desktop: show email + sign out inline */}
@@ -99,8 +107,10 @@ export default function MainTabs({ session, onSignOut }) {
               {' · '}
               <span className="text-text font-medium">{counts.total}</span> total
             </>
-          ) : (
+          ) : tab === TAB.BUILDER ? (
             <>Geofence Builder</>
+          ) : (
+            <>Route Training — draw reference paths to teach the ML model hotel loop routes</>
           )}
         </div>
       </header>
@@ -108,6 +118,7 @@ export default function MainTabs({ session, onSignOut }) {
       <div className="flex-1 overflow-hidden">
         {tab === TAB.ZONES ? <ZonesPage onCounts={handleCounts} /> : null}
         {tab === TAB.BUILDER ? <BuilderPage /> : null}
+        {tab === TAB.TRAINING ? <TrainingPage /> : null}
       </div>
     </div>
   );
