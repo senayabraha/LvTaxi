@@ -1,4 +1,7 @@
 {
+  "buildCommand": "vite build",
+  "outputDirectory": "dist",
+  "framework": null,
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
