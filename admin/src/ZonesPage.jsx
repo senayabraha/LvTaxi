@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { supabase } from './supabase.js';
 import ZoneTable from './ZoneTable.jsx';
 import UploadModal from './UploadModal.jsx';
@@ -7,6 +7,157 @@ import ZoneCircleModal from './ZoneCircleModal.jsx';
 import AddZoneModal from './AddZoneModal.jsx';
 import { updateZoneFields, deleteZone, regenerateSnapshot } from './lib/zoneStore.js';
 import { useToast } from './useToast.jsx';
+
+function WorkAreaSection() {
+  const toast = useToast();
+  const fileRef = useRef(null);
+  const [workArea, setWorkArea] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('work_areas')
+      .select('id, name, created_at, active')
+      .eq('active', true)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if (error) {
+      toast(error.message, 'error');
+      setWorkArea(null);
+    } else {
+      setWorkArea(data?.[0] ?? null);
+    }
+    setLoading(false);
+  }, [toast]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function handleFile(file) {
+    if (!file) return;
+    if (!/\.(geo)?json$/i.test(file.name)) {
+      toast('Pick a .geojson or .json file.', 'error');
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      toast('File is not valid JSON.', 'error');
+      return;
+    }
+
+    let polygon = null;
+    let derivedName = workArea?.name ?? 'Las Vegas Work Area';
+    if (parsed?.type === 'FeatureCollection' && Array.isArray(parsed.features)) {
+      const feat = parsed.features.find(
+        (f) => f?.geometry?.type === 'Polygon' || f?.geometry?.type === 'MultiPolygon'
+      );
+      if (feat) {
+        polygon = feat;
+        if (feat.properties?.name || feat.properties?.Name) {
+          derivedName = feat.properties.name ?? feat.properties.Name;
+        }
+      }
+    } else if (parsed?.type === 'Feature') {
+      polygon = parsed;
+      if (parsed.properties?.name) derivedName = parsed.properties.name;
+    } else if (parsed?.type === 'Polygon' || parsed?.type === 'MultiPolygon') {
+      polygon = { type: 'Feature', geometry: parsed, properties: {} };
+    }
+
+    if (!polygon) {
+      toast('No Polygon or MultiPolygon found in the file.', 'error');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const sess = await supabase.auth.getSession();
+      const createdBy = sess.data.session?.user?.id ?? null;
+
+      if (workArea?.id) {
+        const { error } = await supabase
+          .from('work_areas')
+          .update({
+            polygon,
+            name: derivedName,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', workArea.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('work_areas')
+          .insert({
+            name: derivedName,
+            polygon,
+            active: true,
+            created_by: createdBy,
+          });
+        if (error) throw error;
+      }
+      toast('Work area updated', 'success');
+      await load();
+    } catch (err) {
+      toast(err.message ?? 'Upload failed', 'error');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  const buttonLabel = workArea ? 'Replace GeoJSON' : 'Upload Work Area GeoJSON';
+
+  return (
+    <div className="px-3 sm:px-6 py-4 border-b border-border bg-panel/30">
+      <div className="flex items-start sm:items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="text-text font-semibold">Work Area Geofence</div>
+          {loading ? (
+            <div className="text-muted text-xs mt-1">Loading…</div>
+          ) : workArea ? (
+            <div className="text-muted text-xs mt-1 flex items-center gap-2">
+              <span className="text-text">{workArea.name}</span>
+              <span>·</span>
+              <span>
+                created {new Date(workArea.created_at).toLocaleDateString()}
+              </span>
+              <span className="bg-good/20 text-good px-2 py-0.5 rounded text-[10px] font-medium">
+                Active
+              </span>
+            </div>
+          ) : (
+            <div className="text-muted text-xs mt-1">No work area configured</div>
+          )}
+        </div>
+        <div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".geojson,.json,application/geo+json,application/json"
+            className="hidden"
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className={`px-3 py-1.5 rounded text-xs font-semibold ${
+              uploading
+                ? 'bg-accent/60 text-bg'
+                : 'bg-accent text-bg hover:opacity-90'
+            }`}
+          >
+            {uploading ? 'Uploading…' : buttonLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function exportCSV(zones, stats) {
   const headers = [
@@ -216,6 +367,8 @@ export default function ZonesPage({ onCounts }) {
 
   return (
     <div className="flex flex-col h-full">
+      <WorkAreaSection />
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-6 py-3 border-b border-border bg-panel/40">
         {/* Search */}

@@ -14,6 +14,7 @@ const initialState = {
   isInsideZone: false,
   zoneEntryTime: null,
   activeSort: SORT_OPTIONS.NEAREST,
+  gpsTier: 3,
 };
 
 const driversSlice = createSlice({
@@ -62,6 +63,9 @@ const driversSlice = createSlice({
       state.isInsideZone = false;
       state.zoneEntryTime = null;
     },
+    setGpsTier(state, action) {
+      state.gpsTier = action.payload;
+    },
   },
 });
 
@@ -73,6 +77,7 @@ export const {
   setActiveSort,
   zoneEntered,
   zoneExited,
+  setGpsTier,
 } = driversSlice.actions;
 
 export default driversSlice.reducer;

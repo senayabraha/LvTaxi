@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import { signOut } from '../lib/sessionManager';
 import { supabase } from '../lib/supabase';
-import StatusToggle from '../components/StatusToggle';
 
 export default function ProfileScreen() {
   const dispatch = useDispatch();
@@ -83,10 +82,6 @@ export default function ProfileScreen() {
           <Text className="text-text capitalize">
             {profile?.subscription_tier ?? 'free'}
           </Text>
-        </View>
-
-        <View className="mt-2">
-          <StatusToggle />
         </View>
 
         <View className="px-4 mt-6">

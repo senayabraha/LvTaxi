@@ -10,6 +10,7 @@ import { Text } from 'react-native';
 
 import { store } from './src/store';
 import { setupSessionListener } from './src/lib/sessionManager';
+import { startTierManager, stopTierManager } from './src/lib/tierManager';
 import SplashScreen from './src/screens/SplashScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import NameScreen from './src/screens/NameScreen';
@@ -91,6 +92,18 @@ function Root() {
     const unsub = setupSessionListener(dispatch);
     return unsub;
   }, [dispatch]);
+
+  useEffect(() => {
+    if (session && profile) {
+      startTierManager().catch((err) =>
+        console.warn('[App] startTierManager failed', err)
+      );
+    } else {
+      stopTierManager().catch((err) =>
+        console.warn('[App] stopTierManager failed', err)
+      );
+    }
+  }, [session, profile]);
 
   if (isLoading) return <SplashScreen />;
 

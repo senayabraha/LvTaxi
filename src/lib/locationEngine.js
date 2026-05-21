@@ -69,7 +69,7 @@ const listeners = new Set();
 export const GPS_MODE = {
   HIGH: 'high',       // active/staged — 1s, Accuracy.BestForNavigation
   LOW: 'low',         // stationary in zone — 5s, Accuracy.Balanced (auto)
-  PASSIVE: 'passive', // off-duty — 5min, Accuracy.Balanced
+  PASSIVE: 'passive', // off-duty / outside work area — 20min, Accuracy.Balanced
 };
 
 export function onSmoothedLocation(listener) {
@@ -81,7 +81,7 @@ function modeOptions(mode) {
   if (mode === GPS_MODE.PASSIVE) {
     return {
       accuracy: Location.Accuracy.Balanced,
-      timeInterval: 300_000,
+      timeInterval: 1_200_000,
       distanceInterval: 25,
     };
   }

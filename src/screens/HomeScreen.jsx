@@ -3,7 +3,8 @@ import { View, Text, FlatList, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import SortBar from '../components/SortBar';
-import StatusToggle from '../components/StatusToggle';
+import AutoStatusBar from '../components/AutoStatusBar';
+import ImStagingButton from '../components/ImStagingButton';
 import ZoneListItem, { ZONE_ITEM_HEIGHT } from '../components/ZoneListItem';
 import ConnectionBanner from '../components/ConnectionBanner';
 import { useZones } from '../hooks/useZones';
@@ -14,6 +15,10 @@ import {
   stopGeofenceManager,
   getTop20Zones,
 } from '../lib/geofenceEngine';
+import {
+  startTierManager,
+  refreshZoneCache,
+} from '../lib/tierManager';
 import { setTop20Zones, setSort } from '../store/zonesSlice';
 import { getDriverPositionInZone } from '../lib/zoneStatsEngine';
 import { initNotifications } from '../lib/notificationService';
@@ -25,12 +30,6 @@ import {
 const STATUS_DEFAULT_SORT = {
   [DRIVER_STATUS.ACTIVE]: SORT_OPTIONS.WAIT,
   [DRIVER_STATUS.STAGED]: SORT_OPTIONS.NEAREST,
-};
-
-const STATUS_COLORS = {
-  active: '#22C55E',
-  staged: '#F5C518',
-  off_duty: '#EF4444',
 };
 
 export default function HomeScreen() {
@@ -56,6 +55,9 @@ export default function HomeScreen() {
   useEffect(() => {
     initNotifications().catch((err) =>
       console.warn('[HomeScreen] initNotifications failed', err)
+    );
+    startTierManager().catch((err) =>
+      console.warn('[HomeScreen] startTierManager failed', err)
     );
   }, []);
 
@@ -125,6 +127,9 @@ export default function HomeScreen() {
     if (allZones.length === 0) return;
     const top20 = getTop20Zones(allZones, activeSort, currentLat, currentLng);
     dispatch(setTop20Zones(top20));
+    refreshZoneCache().catch((err) =>
+      console.warn('[HomeScreen] refreshZoneCache failed', err)
+    );
   }, [allZones, activeSort, currentLat, currentLng, dispatch]);
 
   useEffect(() => {
@@ -174,34 +179,20 @@ export default function HomeScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
       <View className="flex-row items-center justify-between px-4 pt-2 pb-2">
-        <View>
-          <Text className="text-accent text-2xl font-bold">🚕 LvTaxi</Text>
-          <Text className="text-muted text-xs">
+        <View className="flex-1 mr-3">
+          <AutoStatusBar />
+          <Text className="text-muted text-xs mt-1">
             {now.toLocaleTimeString([], {
               hour: '2-digit',
               minute: '2-digit',
             })}
           </Text>
         </View>
-        <View className="flex-row items-center">
-          <View
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: 5,
-              backgroundColor: STATUS_COLORS[status] ?? '#8A93A6',
-              marginRight: 6,
-            }}
-          />
-          <Text className="text-text capitalize">
-            {String(status).replace('_', ' ')}
-          </Text>
-        </View>
+        <Text className="text-accent text-2xl font-bold">🚕 LvTaxi</Text>
       </View>
 
       <ConnectionBanner updatedAt={statsUpdatedAt} error={error} />
 
-      <StatusToggle />
       <SortBar />
 
       <FlatList
@@ -231,6 +222,8 @@ export default function HomeScreen() {
         }
         contentContainerStyle={{ paddingBottom: 24 }}
       />
+
+      <ImStagingButton />
     </SafeAreaView>
   );
 }
