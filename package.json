@@ -16,6 +16,7 @@
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
     "@reduxjs/toolkit": "^2.2.7",
+    "@sentry/react-native": "^8.12.0",
     "@supabase/supabase-js": "^2.45.4",
     "@turf/turf": "^7.3.5",
     "babel-preset-expo": "~54.0.10",

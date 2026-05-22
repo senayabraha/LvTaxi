@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as turf from '@turf/turf';
+import * as Sentry from '@sentry/react-native';
 import { store } from '../store';
 import { zoneEntered, zoneExited } from '../store/driversSlice';
 import { setTop20Zones } from '../store/zonesSlice';
@@ -192,6 +193,9 @@ async function handleExit(zoneId) {
 TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   if (error) {
     console.warn('[geofenceEngine] task error', error);
+    Sentry.captureException(error, {
+      tags: { source: 'geofenceEngine', phase: 'task' },
+    });
     return;
   }
   const { eventType, region } = data ?? {};
@@ -205,6 +209,10 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
     }
   } catch (err) {
     console.warn('[geofenceEngine] handler failed', err);
+    Sentry.captureException(err, {
+      tags: { source: 'geofenceEngine', phase: 'handler' },
+      extra: { eventType, regionId: region?.identifier },
+    });
   }
 });
 

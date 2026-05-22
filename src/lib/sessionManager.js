@@ -1,4 +1,5 @@
 import * as Linking from 'expo-linking';
+import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
 import {
   setSession,
@@ -61,6 +62,7 @@ export function setupSessionListener(dispatch) {
       const session = data?.session ?? null;
       dispatch(setSession(session));
       if (session?.user?.id) {
+        Sentry.setUser({ id: session.user.id });
         await fetchAndSetProfile(dispatch, session.user.id);
       }
     } catch (err) {
@@ -78,11 +80,13 @@ export function setupSessionListener(dispatch) {
       } else if (event === 'SIGNED_IN') {
         dispatch(setSession(session));
         if (session?.user?.id) {
+          Sentry.setUser({ id: session.user.id });
           await fetchAndSetProfile(dispatch, session.user.id);
         }
       } else if (event === 'TOKEN_REFRESHED') {
         dispatch(setSession(session));
       } else if (event === 'SIGNED_OUT') {
+        Sentry.setUser(null);
         dispatch(clearSession());
         dispatch(clearProfile());
       } else if (event === 'USER_UPDATED') {
@@ -111,6 +115,7 @@ export async function signOut(dispatch) {
   try {
     stopLocationTracking();
   } catch {}
+  Sentry.setUser(null);
   await supabase.auth.signOut();
   dispatch(clearSession());
   dispatch(clearProfile());

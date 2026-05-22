@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -13,6 +14,12 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     console.error('[ErrorBoundary]', error, info?.componentStack);
+    Sentry.captureException(error, {
+      contexts: {
+        react: { componentStack: info?.componentStack ?? null },
+      },
+      tags: { source: 'ErrorBoundary' },
+    });
   }
 
   reset = () => {

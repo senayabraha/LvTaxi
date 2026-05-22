@@ -10,3 +10,5 @@ web-build/
 .claude/
 supabase/.temp/
 secrets/
+
+.env.local
