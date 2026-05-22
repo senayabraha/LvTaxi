@@ -1,12 +1,4 @@
 {
-  "buildCommand": "vite build",
-  "outputDirectory": "dist",
-  "framework": null,
   "cleanUrls": true,
-  "trailingSlash": false,
-  "rewrites": [
-    { "source": "/admin/:path*", "destination": "/index.html" },
-    { "source": "/admin", "destination": "/index.html" },
-    { "source": "/", "destination": "/landing.html" }
-  ]
+  "trailingSlash": false
 }
