@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **Effective date:** May 18, 2026
-**Last updated:** May 21, 2026
+**Last updated:** May 23, 2026
 
 LvTaxi ("we," "us," "our") operates the LvTaxi mobile application (the "App"), which helps taxi and rideshare drivers see live staging zone activity in the Las Vegas metropolitan area. This Privacy Policy explains what information we collect, how we use it, and the choices you have.
 
@@ -13,7 +13,10 @@ If you do not agree with this policy, do not install or use the App.
 When you create an account, we collect:
 - Your email address (used for sign-in and account recovery)
 - A password (stored only as a salted hash; we never see your plaintext password)
+- Your phone number, if you choose to sign in with phone (used only to deliver a one-time verification code)
 - A display name you choose
+
+**SMS verification.** If you choose phone-based sign-in, we send a one-time 6-digit verification code via SMS to the number you enter. By providing your phone number and tapping "Send code," you consent to receive SMS messages from LvTaxi for the purpose of account verification. Message and data rates may apply. Message frequency is one message per sign-in attempt. Reply STOP to opt out or HELP for help. **We do not share your phone number or SMS opt-in data with third parties or affiliates for promotional purposes.** SMS messages are delivered through our service provider Twilio.
 
 ### 1.2 Location information
 The App is location-aware. With your permission, we collect:
