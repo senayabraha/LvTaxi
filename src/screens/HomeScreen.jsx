@@ -13,13 +13,12 @@ import { getDistanceMeters } from '../lib/locationEngine';
 import {
   startGeofenceManager,
   stopGeofenceManager,
-  getTop20Zones,
 } from '../lib/geofenceEngine';
 import {
   startTierManager,
   refreshZoneCache,
 } from '../lib/tierManager';
-import { setTop20Zones, setSort } from '../store/zonesSlice';
+import { setSort } from '../store/zonesSlice';
 import { getDriverPositionInZone } from '../lib/zoneStatsEngine';
 import { initNotifications } from '../lib/notificationService';
 import {
@@ -58,6 +57,9 @@ export default function HomeScreen() {
     );
     startTierManager().catch((err) =>
       console.warn('[HomeScreen] startTierManager failed', err)
+    );
+    refreshZoneCache().catch((err) =>
+      console.warn('[HomeScreen] refreshZoneCache failed', err)
     );
   }, []);
 
@@ -122,15 +124,6 @@ export default function HomeScreen() {
     comingSoon.sort((a, b) => a.zone.name.localeCompare(b.zone.name));
     return [...active, ...comingSoon];
   }, [enriched, activeSort]);
-
-  useEffect(() => {
-    if (allZones.length === 0) return;
-    const top20 = getTop20Zones(allZones, activeSort, currentLat, currentLng);
-    dispatch(setTop20Zones(top20));
-    refreshZoneCache().catch((err) =>
-      console.warn('[HomeScreen] refreshZoneCache failed', err)
-    );
-  }, [allZones, activeSort, currentLat, currentLng, dispatch]);
 
   useEffect(() => {
     let cancelled = false;

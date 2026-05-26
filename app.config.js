@@ -17,6 +17,12 @@ module.exports = {
     icon,
     userInterfaceStyle: 'dark',
     primaryColor: '#F5C518',
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
+    updates: {
+      url: 'https://u.expo.dev/186f04ea-7cab-4e55-9db4-bdd30bb522a5',
+    },
     splash: {
       image: './assets/splash.png',
       resizeMode: 'contain',

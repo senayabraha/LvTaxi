@@ -27,6 +27,7 @@ let lastRefreshAnchor = null;
 let refreshTimer = null;
 let lastGeofenceUpdateAt = 0;
 let pendingDebounceTimer = null;
+let isRecomputing = false;
 
 function getZoneById(id) {
   if (activeZoneById.has(id)) return activeZoneById.get(id);
@@ -51,6 +52,9 @@ function verifyWithPolygon(zone, lat, lng) {
 }
 
 async function completeHandleEnter(zoneId, zone, driverId) {
+  // Set sentinel BEFORE any async work so the handleEnter guard keeps re-fires out
+  // even while the insert is in flight.
+  activeVisits.set(zoneId, null);
   store.dispatch(zoneEntered(zoneId));
 
   let visitId = null;
@@ -83,6 +87,11 @@ async function completeHandleEnter(zoneId, zone, driverId) {
 }
 
 async function handleEnter(zoneId) {
+  // Guard against Expo re-firing Enter or a polygon-retry racing with a fresh Enter.
+  // activeVisits is set inside completeHandleEnter and cleared on exit; pendingEntries
+  // is set while the polygon retry loop is running.
+  if (activeVisits.has(zoneId) || pendingEntries.has(zoneId)) return;
+
   const zone = getZoneById(zoneId);
   const driverId = store.getState().auth.session?.user?.id ?? null;
 
@@ -303,10 +312,9 @@ function recomputeAndApply() {
     currentLat: state.drivers.currentLat,
     currentLng: state.drivers.currentLng,
   };
-  const top20 = getTop20Zones(allZones, activeSort, currentLat, currentLng);
-  store.dispatch(setTop20Zones(top20));
-  updateActiveGeofences(top20);
 
+  // Set the anchor BEFORE dispatching so the subscriber's movedFar check
+  // (which runs on every store change) doesn't see a null anchor and re-enter.
   if (
     activeSort === SORT_OPTIONS.NEAREST &&
     currentLat != null &&
@@ -316,14 +324,28 @@ function recomputeAndApply() {
   } else {
     lastRefreshAnchor = null;
   }
+
+  const top20 = getTop20Zones(allZones, activeSort, currentLat, currentLng);
+  store.dispatch(setTop20Zones(top20));
+  updateActiveGeofences(top20);
 }
 
 let unsubscribeStore = null;
 
+function guardedRecompute() {
+  if (isRecomputing) return;
+  isRecomputing = true;
+  try {
+    recomputeAndApply();
+  } finally {
+    isRecomputing = false;
+  }
+}
+
 export function startGeofenceManager() {
   if (refreshTimer) return;
 
-  recomputeAndApply();
+  guardedRecompute();
 
   let prevSort = store.getState().zones.activeSort;
   let prevZonesLength = store.getState().zones.allZones.length;
@@ -332,6 +354,7 @@ export function startGeofenceManager() {
   );
 
   unsubscribeStore = store.subscribe(() => {
+    if (isRecomputing) return;
     const state = store.getState();
     const { activeSort, allZones, stats } = state.zones;
     const { currentLat, currentLng } = state.drivers;
@@ -368,11 +391,16 @@ export function startGeofenceManager() {
       prevSort = activeSort;
       prevZonesLength = allZones.length;
       prevStatsKey = statsKey;
-      recomputeAndApply();
+      isRecomputing = true;
+      try {
+        recomputeAndApply();
+      } finally {
+        isRecomputing = false;
+      }
     }
   });
 
-  refreshTimer = setInterval(recomputeAndApply, REFRESH_INTERVAL_MS);
+  refreshTimer = setInterval(guardedRecompute, REFRESH_INTERVAL_MS);
 }
 
 export async function stopGeofenceManager() {

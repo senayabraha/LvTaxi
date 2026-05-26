@@ -143,7 +143,6 @@ export async function processAsStaging(visitId, opts = {}) {
   const zoneId = opts.zoneId ?? visit.zone_id;
   const driverId = visit.driver_id;
 
-  await decrementZoneCount(zoneId);
   await recordLoadEvent(zoneId);
   await upsertHistory(driverId, zoneId, {
     total_visits: 1,
@@ -173,7 +172,6 @@ export async function processAsDropoff(visitId, opts = {}) {
   const zoneId = opts.zoneId ?? visit.zone_id;
   const driverId = visit.driver_id;
 
-  await decrementZoneCount(zoneId);
   await upsertHistory(driverId, zoneId, {
     total_visits: 1,
     dropoff_count: 1,
@@ -206,6 +204,10 @@ export async function processZoneExit(visitId, driverId, zoneId, gpsPoints, zone
     );
 
   await saveClassification(visitId, classification, confidence, score);
+
+  // Decrement unconditionally — the increment/decrement pair must balance regardless
+  // of classification, otherwise UNKNOWN visits leave cars_staged inflated forever.
+  await decrementZoneCount(zoneId);
 
   if (classification === VISIT_CLASS.STAGING) {
     await processAsStaging(visitId, { zoneId });

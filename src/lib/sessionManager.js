@@ -11,6 +11,19 @@ import {
 import { setProfile, clearProfile } from '../store/driversSlice';
 import { stopLocationTracking } from './locationEngine';
 import { stopGeofenceManager } from './geofenceEngine';
+import { closeOrphanedVisits } from './visitReconciler';
+
+let hasReconciled = false;
+
+async function reconcileOnce(userId) {
+  if (hasReconciled || !userId) return;
+  hasReconciled = true;
+  try {
+    await closeOrphanedVisits(userId);
+  } catch (err) {
+    console.warn('[sessionManager] reconcile failed', err);
+  }
+}
 
 async function handleAuthDeepLink(url, dispatch) {
   if (!url) return;
@@ -64,6 +77,7 @@ export function setupSessionListener(dispatch) {
       if (session?.user?.id) {
         Sentry.setUser({ id: session.user.id });
         await fetchAndSetProfile(dispatch, session.user.id);
+        reconcileOnce(session.user.id);
       }
     } catch (err) {
       console.warn('[sessionManager] init failed', err);
@@ -82,6 +96,7 @@ export function setupSessionListener(dispatch) {
         if (session?.user?.id) {
           Sentry.setUser({ id: session.user.id });
           await fetchAndSetProfile(dispatch, session.user.id);
+          reconcileOnce(session.user.id);
         }
       } else if (event === 'TOKEN_REFRESHED') {
         dispatch(setSession(session));
