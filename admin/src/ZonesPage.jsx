@@ -520,7 +520,10 @@ export default function ZonesPage({ onCounts }) {
       ) : null}
 
       {showVersions ? (
-        <ZoneVersionsModal onClose={() => setShowVersions(false)} />
+        <ZoneVersionsModal
+          onClose={() => setShowVersions(false)}
+          onRestored={load}
+        />
       ) : null}
 
       {showAddZone ? (

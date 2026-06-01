@@ -1,5 +1,6 @@
 import { supabase } from '../supabase.js';
 import { centroidOf, radiusMeters, normalizeName } from '../geo.js';
+import { SCALAR_FIELDS, POLYGON_FIELDS } from './zoneVersionDiff.js';
 
 // ── Debounced snapshot regeneration ────────────────────────────────────────
 // Coalesces rapid toggle changes into a single Storage write.
@@ -285,6 +286,9 @@ export function buildZoneSnapshot(zones) {
         circle_enabled: z.circle_enabled,
         has_drawn_polygon: !!z.drawn_polygon,
         has_driven_polygon: !!z.driven_polygon,
+        // Full polygon JSON so a version can be faithfully restored later.
+        drawn_polygon: z.drawn_polygon ?? null,
+        driven_polygon: z.driven_polygon ?? null,
         phase: z.use_driven_polygon && z.driven_polygon ? 'B' : z.drawn_polygon ? 'A' : 'Circle',
         lat: z.lat,
         lng: z.lng,
@@ -323,4 +327,126 @@ export async function saveZoneVersion(notes) {
   if (insErr) throw insErr;
 
   return data;
+}
+
+// ── Zone version restore / rollback (Phase 3) ──────────────────────────────
+// Applies a precomputed diff (from computeRestoreDiff) to staging_zones.
+//
+// Safety:
+//   • Sequential (not Promise.all) so the audit trail is ordered and a failure
+//     stops cleanly without firing further writes.
+//   • Returns an honest summary; on failure it reports how many updates/creates
+//     had already been applied (the restore is NOT transactional).
+//   • Zones present in the DB but absent from the snapshot are never touched.
+//
+// Audit: each changed field is logged to zone_audit_log. Polygon fields are
+// logged as compact summaries (polygon_set / polygon_changed / polygon_missing)
+// instead of huge JSON. Created zones log field = 'restored_created'.
+function buildRestoreInsertRow(s) {
+  const row = {};
+  if (s.id) row.id = s.id; // preserve id for stable references / future diffs
+  for (const f of SCALAR_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(s, f)) row[f] = s[f];
+  }
+  for (const f of POLYGON_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(s, f)) row[f] = s[f] ?? null;
+  }
+  // Defaults for NOT NULL / expected columns if the snapshot omitted them.
+  if (row.active == null) row.active = true;
+  if (row.use_driven_polygon == null) row.use_driven_polygon = false;
+  if (row.is_coming_soon == null) row.is_coming_soon = false;
+  if (row.visible_to_drivers == null) row.visible_to_drivers = true;
+  return row;
+}
+
+export async function restoreZoneVersion({ version, diff }) {
+  const summary = { updated: 0, created: 0, failed: null };
+
+  // 1. Update existing zones (sequentially).
+  for (const item of diff.toUpdate) {
+    const { current, patch, changes } = item;
+    const { error } = await supabase
+      .from('staging_zones')
+      .update(patch)
+      .eq('id', current.id);
+    if (error) {
+      summary.failed = {
+        stage: 'update',
+        zone: current.name,
+        message: error.message,
+        appliedUpdates: summary.updated,
+        appliedCreates: summary.created,
+      };
+      return summary;
+    }
+    for (const [field, change] of Object.entries(changes)) {
+      const isPoly = POLYGON_FIELDS.includes(field);
+      writeAuditLog({
+        zone_id: current.id,
+        zone_name: current.name,
+        field,
+        old_value: isPoly
+          ? change.from === 'present'
+            ? 'polygon_present'
+            : 'polygon_absent'
+          : current[field],
+        new_value: isPoly ? `polygon_${change.kind}` : patch[field],
+      });
+    }
+    summary.updated += 1;
+  }
+
+  // 2. Create zones that exist in the snapshot but not the DB.
+  for (const s of diff.toCreate) {
+    const row = buildRestoreInsertRow(s);
+    const { data, error } = await supabase
+      .from('staging_zones')
+      .insert(row)
+      .select('id, name')
+      .single();
+    if (error) {
+      summary.failed = {
+        stage: 'create',
+        zone: s.name,
+        message: error.message,
+        appliedUpdates: summary.updated,
+        appliedCreates: summary.created,
+      };
+      return summary;
+    }
+    await supabase.from('zone_stats').upsert(
+      {
+        zone_id: data.id,
+        cars_staged: 0,
+        flow_rate_per_hour: 0,
+        wait_time_minutes: null,
+        last_updated: new Date().toISOString(),
+      },
+      { onConflict: 'zone_id', ignoreDuplicates: true }
+    );
+    writeAuditLog({
+      zone_id: data.id,
+      zone_name: data.name,
+      field: 'restored_created',
+      old_value: null,
+      new_value: 'created',
+    });
+    summary.created += 1;
+  }
+
+  // 3. Regenerate the canonical snapshot so drivers see the restored config.
+  try {
+    await regenerateSnapshot();
+  } catch (err) {
+    console.warn('[zoneStore] post-restore snapshot regen failed', err);
+  }
+
+  // 4. Preserve history: record that a restore happened (best-effort).
+  try {
+    await saveZoneVersion(`Restore applied from version #${version.version_number}`);
+  } catch (err) {
+    console.warn('[zoneStore] post-restore version save failed', err);
+  }
+
+  return summary;
 }

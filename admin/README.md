@@ -74,11 +74,36 @@ route type and source; preview a route's drawn path on a Leaflet map; delete a
 route (with confirmation). This is a manager for already-saved routes — the
 **Training** tab remains the drawing tool.
 
-### Zone config versions
-The Zones tab has a **🗂 Versions** button that opens a modal to snapshot the
-full zone configuration into `zone_config_versions` (append-only history for
-auditability / future rollback) and to browse recent versions. Saving inserts
-under the admin's JWT via RLS — no rollback is implemented yet.
+### Zone config versions & restore
+The Zones tab has a **🗂 Versions** button that opens a modal which lists
+recent versions, saves new ones, and restores an earlier one.
+
+- **What a version is** — an append-only snapshot of the *full* zone
+  configuration (every zone's toggles + polygon JSON) stored in
+  `zone_config_versions.snapshot`. Saved under the admin's JWT via RLS.
+- **Save Version** — type optional notes and click 💾 Save Version. Inserts one
+  immutable row; the live config is untouched.
+- **Restore (rollback)** — click **↩ Restore** on a version. The modal computes
+  a diff of that snapshot against the current `staging_zones` (matched by id,
+  then by name) and shows: zones to **update** (with changed fields), zones to
+  **create**, **unchanged** zones, and zones **not in the version**. Polygon
+  fields are shown as `set` / `changed` / `missing` summaries, never raw JSON.
+  You must type **`RESTORE`** to enable the confirm button.
+- **On confirm** — existing zones are updated and missing zones inserted
+  (sequentially, for an ordered audit trail); every change is written to
+  `zone_audit_log` (created zones use `field = restored_created`, polygon
+  changes use `polygon_*` summaries). The canonical snapshot is regenerated and
+  a new version row noting `"Restore applied from version #N"` is appended.
+
+**Safety**
+- Restore is **never instant** — it always goes through preview + typed
+  confirmation.
+- Restore is **not transactional**; on a mid-process failure it stops and the
+  UI honestly reports how many changes were already applied.
+- Zones present now but **missing from the selected version are never deleted**
+  — they are listed and left unchanged. Removing them stays a separate manual
+  action.
+- There is still **no admin promote/demote** and no super-admin role.
 
 ## Security
 - The admin app uses the **publishable** Supabase key only — the same key as
@@ -89,10 +114,14 @@ under the admin's JWT via RLS — no rollback is implemented yet.
   no crash) when a table is missing or RLS blocks a read.
 
 ## Migrations
-New in Phase 2: `supabase/migrations/015_zone_config_versions.sql`
-(append-only `zone_config_versions` table, RLS admin select/insert). Drivers
-and Routes pages reuse existing tables/policies (`drivers`,
-`driver_presence`, `reference_routes`) — no new migration required.
+`supabase/migrations/015_zone_config_versions.sql` (Phase 2) — append-only
+`zone_config_versions` table, RLS admin select/insert. Drivers and Routes pages
+reuse existing tables/policies (`drivers`, `driver_presence`,
+`reference_routes`). Phase 3 (restore) adds **no new migration** — it stores
+full polygon JSON inside the existing `snapshot` column and reuses
+`zone_audit_log`. Versions saved before Phase 3 lack polygon JSON, so a restore
+of an old version leaves polygon fields untouched (it only restores what the
+snapshot captured).
 
 ## Deploy (Vercel)
 Set the project root to `/admin`, framework preset `Vite`. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` as env vars in the Vercel project settings.
