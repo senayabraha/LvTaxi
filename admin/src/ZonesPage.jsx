@@ -5,6 +5,7 @@ import UploadModal from './UploadModal.jsx';
 import ZoneMapModal from './ZoneMapModal.jsx';
 import ZoneCircleModal from './ZoneCircleModal.jsx';
 import AddZoneModal from './AddZoneModal.jsx';
+import ZoneVersionsModal from './ZoneVersionsModal.jsx';
 import { updateZoneFields, deleteZone, regenerateSnapshot } from './lib/zoneStore.js';
 import { getWaitMinutes } from './lib/zoneHealth.js';
 import { useToast } from './useToast.jsx';
@@ -242,6 +243,7 @@ export default function ZonesPage({ onCounts }) {
   const [statsError, setStatsError] = useState(null);
   const [showUpload, setShowUpload] = useState(false);
   const [showAddZone, setShowAddZone] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
   const [previewZone, setPreviewZone] = useState(null);
   const [editCircleZone, setEditCircleZone] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -460,6 +462,13 @@ export default function ZonesPage({ onCounts }) {
             ⬇ GeoJSON
           </button>
           <button
+            onClick={() => setShowVersions(true)}
+            className="bg-panel border border-border text-muted px-3 py-1.5 rounded text-xs hover:text-text whitespace-nowrap"
+            title="Snapshot the current zone config / view history"
+          >
+            🗂 Versions
+          </button>
+          <button
             onClick={() => setShowAddZone(true)}
             className="bg-panel border border-border text-muted px-3 py-1.5 rounded text-xs hover:text-text whitespace-nowrap"
           >
@@ -508,6 +517,10 @@ export default function ZonesPage({ onCounts }) {
             toast('Zones imported successfully', 'success');
           }}
         />
+      ) : null}
+
+      {showVersions ? (
+        <ZoneVersionsModal onClose={() => setShowVersions(false)} />
       ) : null}
 
       {showAddZone ? (

@@ -30,5 +30,69 @@ The keys are the **same publishable key** as the mobile app. RLS limits what non
 - Sort by Name / Cars / Wait
 - Upload GeoJSON → preview → bulk import
 
+## Tabs
+
+Keyboard shortcuts `1`–`7` switch tabs.
+
+| # | Tab | Purpose |
+|---|-----|---------|
+| 1 | **Live Ops** | Real-time zone health & wait confidence |
+| 2 | **Zones** | Manage zones, polygons, toggles, config versions |
+| 3 | **Drivers** | Driver roster, presence & classification |
+| 4 | **Routes** | Manage saved training routes |
+| 5 | **Builder** | Draw / track geofences |
+| 6 | **Training** | Draw new reference routes for the ML model |
+| 7 | **Audit** | Admin change history |
+
+### Live Ops
+Reads the `get_zone_live_stats()` RPC (presence-based live counts + blended
+wait estimate). If the RPC is unavailable it falls back to `zone_stats` and
+shows a warning banner. Summary cards plus a **Zone Health** table compute a
+GOOD / WARNING / CRITICAL / UNKNOWN badge per zone (shared logic in
+`src/lib/zoneHealth.js`, also used by the Zones table). Auto-refreshes every
+15 s via polling — no extra realtime channels.
+
+### Audit
+Reads `zone_audit_log` (written by `src/lib/zoneStore.js` on every zone
+change). Filter by zone name, field, and time range (24h / 7d / 30d / All);
+newest first, capped at 200 rows. If the table is missing or RLS blocks the
+read, a helpful message is shown instead of a crash. No rollback.
+
+### Drivers
+Joins `drivers` with `driver_presence` (and `staging_zones` for zone names).
+Shows name, contact, role, status, current zone, classification, last
+seen/ping, GPS accuracy and speed (App version column appears only if a
+`drivers.app_version` column exists). Filter by Online / Stale / Off Duty /
+Admin / Driver and search by name/email/phone. Online = pinged within 90 s,
+Stale = within 30 min. Reading all drivers requires the `admin_read_all`
+policy (migration 001) and `drivers.role = 'admin'`; otherwise a helpful RLS
+message is shown. No promote/demote is provided.
+
+### Routes (Training Routes Manager)
+Lists saved `reference_routes` joined with `staging_zones`. Filter by zone,
+route type and source; preview a route's drawn path on a Leaflet map; delete a
+route (with confirmation). This is a manager for already-saved routes — the
+**Training** tab remains the drawing tool.
+
+### Zone config versions
+The Zones tab has a **🗂 Versions** button that opens a modal to snapshot the
+full zone configuration into `zone_config_versions` (append-only history for
+auditability / future rollback) and to browse recent versions. Saving inserts
+under the admin's JWT via RLS — no rollback is implemented yet.
+
+## Security
+- The admin app uses the **publishable** Supabase key only — the same key as
+  the mobile app. **Never** put a service role key in this frontend.
+- All access is governed by Row Level Security. Admin-only data (audit log,
+  full driver roster, zone versions) is gated by `is_admin(auth.uid())` /
+  `admin_read_all` policies. New pages degrade gracefully (helpful message,
+  no crash) when a table is missing or RLS blocks a read.
+
+## Migrations
+New in Phase 2: `supabase/migrations/015_zone_config_versions.sql`
+(append-only `zone_config_versions` table, RLS admin select/insert). Drivers
+and Routes pages reuse existing tables/policies (`drivers`,
+`driver_presence`, `reference_routes`) — no new migration required.
+
 ## Deploy (Vercel)
 Set the project root to `/admin`, framework preset `Vite`. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` as env vars in the Vercel project settings.

@@ -263,3 +263,64 @@ export async function regenerateSnapshot() {
 
   return fc.features.length;
 }
+
+// ── Zone config versioning (Phase 2) ────────────────────────────────────────
+// Builds a FeatureCollection-like snapshot of the FULL zone config — every
+// zone, with its toggles and polygon presence — for the version history.
+// Unlike regenerateSnapshot() this keeps all zones (even circle-only ones) so
+// a version is a faithful point-in-time record of the whole configuration.
+export function buildZoneSnapshot(zones) {
+  const features = (zones ?? []).map((z) => {
+    const active = z.use_driven_polygon && z.driven_polygon ? z.driven_polygon : z.drawn_polygon;
+    return {
+      type: 'Feature',
+      geometry: active ? active.geometry ?? active : null,
+      properties: {
+        id: z.id,
+        name: z.name,
+        active: z.active,
+        is_coming_soon: z.is_coming_soon,
+        visible_to_drivers: z.visible_to_drivers,
+        use_driven_polygon: z.use_driven_polygon,
+        circle_enabled: z.circle_enabled,
+        has_drawn_polygon: !!z.drawn_polygon,
+        has_driven_polygon: !!z.driven_polygon,
+        phase: z.use_driven_polygon && z.driven_polygon ? 'B' : z.drawn_polygon ? 'A' : 'Circle',
+        lat: z.lat,
+        lng: z.lng,
+        radius_meters: z.radius_meters,
+      },
+    };
+  });
+  return {
+    type: 'FeatureCollection',
+    generated_at: new Date().toISOString(),
+    feature_count: features.length,
+    features,
+  };
+}
+
+// Saves a new immutable version row. Returns the inserted version.
+// Relies on RLS (admins only); no service role involved.
+export async function saveZoneVersion(notes) {
+  const { data: zones, error } = await supabase.from('staging_zones').select('*');
+  if (error) throw error;
+
+  const snapshot = buildZoneSnapshot(zones);
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  const { data, error: insErr } = await supabase
+    .from('zone_config_versions')
+    .insert({
+      snapshot,
+      notes: notes?.trim() ? notes.trim() : null,
+      published_by: session?.user?.id ?? null,
+    })
+    .select('id, version_number, published_at, notes')
+    .single();
+  if (insErr) throw insErr;
+
+  return data;
+}

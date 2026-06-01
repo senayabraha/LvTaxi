@@ -21,17 +21,20 @@ export default function UploadModal({ onClose, onDone }) {
   const [mode, setMode] = useState(MODE.DRAWN);
   const [error, setError] = useState(null);
   const [rows, setRows] = useState([]);
+  const [warnings, setWarnings] = useState([]);
   const [progress, setProgress] = useState({ ok: 0, total: 0 });
 
   function reset() {
     setState(STATE.IDLE);
     setError(null);
     setRows([]);
+    setWarnings([]);
     setProgress({ ok: 0, total: 0 });
   }
 
   async function handleFile(file) {
     setError(null);
+    setWarnings([]);
     if (!file) return;
     if (!/\.(geo)?json$/i.test(file.name)) {
       setError('Pick a .geojson or .json file.');
@@ -50,16 +53,36 @@ export default function UploadModal({ onClose, onDone }) {
       return;
     }
 
+    // Validation tallies — surfaced as non-blocking warnings before import.
+    let nonPolygonSkipped = 0;
+    let missingNameSkipped = 0;
+    let noCentroidSkipped = 0;
+    const seenNames = new Map(); // name -> count
+    const largeRadius = [];
+    const smallRadius = [];
+
     const candidates = [];
     for (const feature of parsed.features) {
-      if (feature?.geometry?.type !== 'Polygon') continue;
+      if (feature?.geometry?.type !== 'Polygon') {
+        nonPolygonSkipped += 1;
+        continue;
+      }
       const name = normalizeName(
         feature.properties?.Name || feature.properties?.name
       );
-      if (!name) continue;
+      if (!name) {
+        missingNameSkipped += 1;
+        continue;
+      }
       const center = centroidOf(feature);
-      if (!center) continue;
+      if (!center) {
+        noCentroidSkipped += 1;
+        continue;
+      }
       const radius = radiusMeters(feature);
+      seenNames.set(name, (seenNames.get(name) ?? 0) + 1);
+      if (radius > 1000) largeRadius.push(name);
+      if (radius < 10) smallRadius.push(name);
       candidates.push({ name, feature, center, radius });
     }
 
@@ -67,6 +90,29 @@ export default function UploadModal({ onClose, onDone }) {
       setError('No usable Polygon features found.');
       return;
     }
+
+    // Build human-readable, non-blocking warnings.
+    const warns = [];
+    const dupes = [...seenNames.entries()].filter(([, n]) => n > 1).map(([n]) => n);
+    if (dupes.length) {
+      warns.push(`Duplicate name${dupes.length > 1 ? 's' : ''} in file: ${dupes.join(', ')} (last one wins)`);
+    }
+    if (missingNameSkipped) {
+      warns.push(`${missingNameSkipped} feature(s) skipped — missing a name property`);
+    }
+    if (nonPolygonSkipped) {
+      warns.push(`${nonPolygonSkipped} non-Polygon feature(s) skipped`);
+    }
+    if (noCentroidSkipped) {
+      warns.push(`${noCentroidSkipped} feature(s) skipped — could not compute a centroid`);
+    }
+    if (largeRadius.length) {
+      warns.push(`Unusually large radius (>1000m): ${largeRadius.join(', ')}`);
+    }
+    if (smallRadius.length) {
+      warns.push(`Unusually small radius (<10m): ${smallRadius.join(', ')}`);
+    }
+    setWarnings(warns);
 
     const names = candidates.map((c) => c.name);
     const { data: existing, error: lookupErr } = await supabase
@@ -211,6 +257,19 @@ export default function UploadModal({ onClose, onDone }) {
 
           {error ? (
             <div className="text-bad text-sm mt-3">{error}</div>
+          ) : null}
+
+          {warnings.length && state !== STATE.DONE ? (
+            <div className="mt-3 mb-3 bg-warn/15 border border-warn/40 rounded px-3 py-2">
+              <div className="text-warn text-xs font-semibold mb-1">
+                ⚠️ {warnings.length} warning{warnings.length > 1 ? 's' : ''} — review before import
+              </div>
+              <ul className="list-disc list-inside text-warn/90 text-xs space-y-0.5">
+                {warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
           ) : null}
 
           {(state === STATE.PARSED ||

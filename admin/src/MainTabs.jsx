@@ -4,10 +4,14 @@ import BuilderPage from './builder/BuilderPage.jsx';
 import TrainingPage from './pages/TrainingPage.jsx';
 import LiveOpsPage from './pages/LiveOpsPage.jsx';
 import AuditPage from './pages/AuditPage.jsx';
+import DriversPage from './pages/DriversPage.jsx';
+import TrainingRoutesPage from './pages/TrainingRoutesPage.jsx';
 
 const TAB = {
   LIVE: 'live',
   ZONES: 'zones',
+  DRIVERS: 'drivers',
+  ROUTES: 'routes',
   BUILDER: 'builder',
   TRAINING: 'training',
   AUDIT: 'audit',
@@ -25,9 +29,11 @@ export default function MainTabs({ session, onSignOut }) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === '1') setTab(TAB.LIVE);
       if (e.key === '2') setTab(TAB.ZONES);
-      if (e.key === '3') setTab(TAB.BUILDER);
-      if (e.key === '4') setTab(TAB.TRAINING);
-      if (e.key === '5') setTab(TAB.AUDIT);
+      if (e.key === '3') setTab(TAB.DRIVERS);
+      if (e.key === '4') setTab(TAB.ROUTES);
+      if (e.key === '5') setTab(TAB.BUILDER);
+      if (e.key === '6') setTab(TAB.TRAINING);
+      if (e.key === '7') setTab(TAB.AUDIT);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -58,20 +64,32 @@ export default function MainTabs({ session, onSignOut }) {
               onClick={() => setTab(TAB.ZONES)}
             />
             <TabButton
-              label="Builder"
+              label="Drivers"
               shortcut="3"
+              active={tab === TAB.DRIVERS}
+              onClick={() => setTab(TAB.DRIVERS)}
+            />
+            <TabButton
+              label="Routes"
+              shortcut="4"
+              active={tab === TAB.ROUTES}
+              onClick={() => setTab(TAB.ROUTES)}
+            />
+            <TabButton
+              label="Builder"
+              shortcut="5"
               active={tab === TAB.BUILDER}
               onClick={() => setTab(TAB.BUILDER)}
             />
             <TabButton
               label="Training"
-              shortcut="4"
+              shortcut="6"
               active={tab === TAB.TRAINING}
               onClick={() => setTab(TAB.TRAINING)}
             />
             <TabButton
               label="Audit"
-              shortcut="5"
+              shortcut="7"
               active={tab === TAB.AUDIT}
               onClick={() => setTab(TAB.AUDIT)}
             />
@@ -131,6 +149,10 @@ export default function MainTabs({ session, onSignOut }) {
               {' · '}
               <span className="text-text font-medium">{counts.total}</span> total
             </>
+          ) : tab === TAB.DRIVERS ? (
+            <>Driver roster, presence and classification</>
+          ) : tab === TAB.ROUTES ? (
+            <>Saved training routes — preview and manage reference paths</>
           ) : tab === TAB.BUILDER ? (
             <>Geofence Builder</>
           ) : tab === TAB.TRAINING ? (
@@ -144,6 +166,8 @@ export default function MainTabs({ session, onSignOut }) {
       <div className="flex-1 overflow-hidden">
         {tab === TAB.LIVE ? <LiveOpsPage /> : null}
         {tab === TAB.ZONES ? <ZonesPage onCounts={handleCounts} /> : null}
+        {tab === TAB.DRIVERS ? <DriversPage /> : null}
+        {tab === TAB.ROUTES ? <TrainingRoutesPage /> : null}
         {tab === TAB.BUILDER ? <BuilderPage /> : null}
         {tab === TAB.TRAINING ? <TrainingPage /> : null}
         {tab === TAB.AUDIT ? <AuditPage /> : null}
