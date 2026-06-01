@@ -6,6 +6,7 @@ import ZoneMapModal from './ZoneMapModal.jsx';
 import ZoneCircleModal from './ZoneCircleModal.jsx';
 import AddZoneModal from './AddZoneModal.jsx';
 import { updateZoneFields, deleteZone, regenerateSnapshot } from './lib/zoneStore.js';
+import { getWaitMinutes } from './lib/zoneHealth.js';
 import { useToast } from './useToast.jsx';
 
 function WorkAreaSection() {
@@ -251,15 +252,25 @@ export default function ZonesPage({ onCounts }) {
     setLoading(true);
     setZoneError(null);
     setStatsError(null);
-    const [zRes, sRes] = await Promise.all([
+    // Pull zones + legacy stats, plus the rich live-stats RPC (best-effort).
+    // The RPC adds estimated_wait_*, wait_confidence and wait_status used for
+    // the per-row health badge; if it fails we silently keep zone_stats only.
+    const [zRes, sRes, liveRes] = await Promise.all([
       supabase.from('staging_zones').select('*').order('name'),
       supabase.from('zone_stats').select('*'),
+      supabase.rpc('get_zone_live_stats'),
     ]);
     if (zRes.error) setZoneError(zRes.error.message);
     if (sRes.error) setStatsError(sRes.error.message);
     setZones(zRes.data ?? []);
     const map = {};
     for (const s of sRes.data ?? []) map[s.zone_id] = s;
+    // Merge rich live fields on top of legacy stats when available.
+    if (!liveRes.error && Array.isArray(liveRes.data)) {
+      for (const l of liveRes.data) {
+        map[l.zone_id] = { ...(map[l.zone_id] ?? {}), ...l };
+      }
+    }
     setStats(map);
     setLoading(false);
   }, []);
@@ -274,7 +285,13 @@ export default function ZonesPage({ onCounts }) {
         (payload) => {
           const row = payload.new ?? payload.old;
           if (!row?.zone_id) return;
-          setStats((m) => ({ ...m, [row.zone_id]: payload.new ?? null }));
+          // Merge so rich live-stat fields from the RPC survive realtime
+          // zone_stats pushes (cars/wait_time update; confidence persists).
+          setStats((m) =>
+            payload.new
+              ? { ...m, [row.zone_id]: { ...m[row.zone_id], ...payload.new } }
+              : { ...m, [row.zone_id]: null }
+          );
         }
       )
       .on(
@@ -320,8 +337,8 @@ export default function ZonesPage({ onCounts }) {
       );
     } else if (sortBy === 'wait') {
       list.sort((a, b) => {
-        const aw = stats[a.id]?.wait_time_minutes ?? Number.POSITIVE_INFINITY;
-        const bw = stats[b.id]?.wait_time_minutes ?? Number.POSITIVE_INFINITY;
+        const aw = getWaitMinutes(stats[a.id]) ?? Number.POSITIVE_INFINITY;
+        const bw = getWaitMinutes(stats[b.id]) ?? Number.POSITIVE_INFINITY;
         return aw - bw;
       });
     } else {

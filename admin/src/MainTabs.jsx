@@ -2,8 +2,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import ZonesPage from './ZonesPage.jsx';
 import BuilderPage from './builder/BuilderPage.jsx';
 import TrainingPage from './pages/TrainingPage.jsx';
+import LiveOpsPage from './pages/LiveOpsPage.jsx';
+import AuditPage from './pages/AuditPage.jsx';
 
-const TAB = { ZONES: 'zones', BUILDER: 'builder', TRAINING: 'training' };
+const TAB = {
+  LIVE: 'live',
+  ZONES: 'zones',
+  BUILDER: 'builder',
+  TRAINING: 'training',
+  AUDIT: 'audit',
+};
 
 export default function MainTabs({ session, onSignOut }) {
   const [tab, setTab] = useState(TAB.ZONES);
@@ -15,9 +23,11 @@ export default function MainTabs({ session, onSignOut }) {
   useEffect(() => {
     function onKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      if (e.key === '1') setTab(TAB.ZONES);
-      if (e.key === '2') setTab(TAB.BUILDER);
-      if (e.key === '3') setTab(TAB.TRAINING);
+      if (e.key === '1') setTab(TAB.LIVE);
+      if (e.key === '2') setTab(TAB.ZONES);
+      if (e.key === '3') setTab(TAB.BUILDER);
+      if (e.key === '4') setTab(TAB.TRAINING);
+      if (e.key === '5') setTab(TAB.AUDIT);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -34,24 +44,36 @@ export default function MainTabs({ session, onSignOut }) {
             🚕 LvTaxi Admin
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center flex-wrap justify-end gap-1.5 sm:gap-2">
+            <TabButton
+              label="Live Ops"
+              shortcut="1"
+              active={tab === TAB.LIVE}
+              onClick={() => setTab(TAB.LIVE)}
+            />
             <TabButton
               label="Zones"
-              shortcut="1"
+              shortcut="2"
               active={tab === TAB.ZONES}
               onClick={() => setTab(TAB.ZONES)}
             />
             <TabButton
               label="Builder"
-              shortcut="2"
+              shortcut="3"
               active={tab === TAB.BUILDER}
               onClick={() => setTab(TAB.BUILDER)}
             />
             <TabButton
               label="Training"
-              shortcut="3"
+              shortcut="4"
               active={tab === TAB.TRAINING}
               onClick={() => setTab(TAB.TRAINING)}
+            />
+            <TabButton
+              label="Audit"
+              shortcut="5"
+              active={tab === TAB.AUDIT}
+              onClick={() => setTab(TAB.AUDIT)}
             />
 
             {/* Desktop: show email + sign out inline */}
@@ -98,7 +120,9 @@ export default function MainTabs({ session, onSignOut }) {
 
         {/* Row 2: context line (counts / page name) */}
         <div className="px-3 sm:px-6 pb-2 text-muted text-xs">
-          {tab === TAB.ZONES ? (
+          {tab === TAB.LIVE ? (
+            <>Live zone health and wait confidence</>
+          ) : tab === TAB.ZONES ? (
             <>
               <span className="text-good font-medium">{counts.active}</span> active
               {' · '}
@@ -109,16 +133,20 @@ export default function MainTabs({ session, onSignOut }) {
             </>
           ) : tab === TAB.BUILDER ? (
             <>Geofence Builder</>
-          ) : (
+          ) : tab === TAB.TRAINING ? (
             <>Route Training — draw reference paths to teach the ML model hotel loop routes</>
+          ) : (
+            <>Admin change history</>
           )}
         </div>
       </header>
 
       <div className="flex-1 overflow-hidden">
+        {tab === TAB.LIVE ? <LiveOpsPage /> : null}
         {tab === TAB.ZONES ? <ZonesPage onCounts={handleCounts} /> : null}
         {tab === TAB.BUILDER ? <BuilderPage /> : null}
         {tab === TAB.TRAINING ? <TrainingPage /> : null}
+        {tab === TAB.AUDIT ? <AuditPage /> : null}
       </div>
     </div>
   );

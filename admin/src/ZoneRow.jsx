@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { HealthBadge } from './components/StatusBadge.jsx';
+import { computeZoneHealth, getWaitMinutes } from './lib/zoneHealth.js';
 
 function Toggle({ value, onChange, color = '#22C55E', disabled = false }) {
   return (
@@ -111,17 +113,27 @@ export default function ZoneRow({ zone, stat, onUpdate, onDelete, onPreview, onE
     }
   }
 
-  const wait = stat?.wait_time_minutes;
+  // Prefer the rich estimated wait when present; fall back to legacy field.
+  const wait = getWaitMinutes(stat);
   const cars = stat?.cars_staged ?? 0;
   const canUsePhaseB = !!zone.driven_polygon;
   const isBusy = !!saving || deleting;
 
+  const { health, reasons } = computeZoneHealth(zone, stat);
+  const waitTitle = stat?.wait_confidence
+    ? `Confidence: ${stat.wait_confidence}` +
+      (stat.wait_status ? ` · Status: ${stat.wait_status}` : '')
+    : undefined;
+
   return (
     <tr className="border-b border-border hover:bg-panel/50">
       <td className="px-3 sm:px-6 py-3 text-text font-medium">
-        {zone.name}
+        <div className="flex items-center gap-2">
+          <span>{zone.name}</span>
+          <HealthBadge health={health} title={reasons.join(' · ')} />
+        </div>
         {saving ? (
-          <span className="ml-2 text-muted text-xs">saving…</span>
+          <span className="text-muted text-xs">saving…</span>
         ) : null}
       </td>
       <td className="px-2 sm:px-3 py-3">
@@ -183,7 +195,10 @@ export default function ZoneRow({ zone, stat, onUpdate, onDelete, onPreview, onE
         />
       </td>
       <td className="px-2 sm:px-3 py-3 text-right tabular-nums">{cars}</td>
-      <td className="px-2 sm:px-3 py-3 text-right tabular-nums">
+      <td
+        className="px-2 sm:px-3 py-3 text-right tabular-nums"
+        title={waitTitle}
+      >
         {formatWait(wait)}
       </td>
       <td className="px-3 sm:px-6 py-3 text-right text-muted text-xs whitespace-nowrap">
