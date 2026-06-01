@@ -13,6 +13,7 @@ import { getDistanceMeters } from '../lib/locationEngine';
 import {
   startGeofenceManager,
   stopGeofenceManager,
+  getWaitSortValue,
 } from '../lib/geofenceEngine';
 import {
   startTierManager,
@@ -113,19 +114,11 @@ export default function HomeScreen() {
           (a.stat?.flow_rate_per_hour ?? 0)
       );
     } else {
-      // Sort by best estimated wait. Prefer new estimated_wait_minutes;
-      // fall back to legacy wait_time_minutes so old data still sorts correctly.
-      active.sort((a, b) => {
-        const aw =
-          a.stat?.estimated_wait_minutes ??
-          a.stat?.wait_time_minutes ??
-          Infinity;
-        const bw =
-          b.stat?.estimated_wait_minutes ??
-          b.stat?.wait_time_minutes ??
-          Infinity;
-        return aw - bw;
-      });
+      // Sort by best estimated wait using the shared key: prefers the new
+      // estimated_wait_minutes, falls back to legacy wait_time_minutes, and
+      // pushes zones with no usable estimate (insufficient data / no recent
+      // movement) to the bottom instead of the top.
+      active.sort((a, b) => getWaitSortValue(a.stat) - getWaitSortValue(b.stat));
     }
 
     // Coming Soon always last, alphabetical.

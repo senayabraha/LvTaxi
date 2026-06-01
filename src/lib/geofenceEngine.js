@@ -9,8 +9,8 @@ import { supabase } from './supabase';
 import { getDistanceMeters } from './locationEngine';
 import { startRecording, stopRecording } from './trajectoryRecorder';
 import { processZoneExit } from './visitProcessor';
-import { incrementZoneCount } from './zoneStatsEngine';
-import { SORT_OPTIONS } from './constants';
+import { maybeSendPresenceHeartbeat } from './presenceHeartbeat';
+import { DRIVER_STATUS, SORT_OPTIONS } from './constants';
 
 export const GEOFENCE_TASK = 'LVTAXI_GEOFENCE_TASK';
 
@@ -76,9 +76,28 @@ async function completeHandleEnter(zoneId, zone, driverId) {
     }
   }
 
-  incrementZoneCount(zoneId).catch((err) =>
-    console.warn('[geofenceEngine] incrementZoneCount failed', err)
-  );
+  // Live counts come from active_driver_presence — no legacy counter here.
+  // Force a presence write immediately on zone enter so the driver is counted
+  // without waiting for the next throttled heartbeat tick.
+  const drivers = store.getState().drivers;
+  const classification =
+    drivers.status === DRIVER_STATUS.STAGED ? 'STAGING' : 'UNKNOWN';
+  if (driverId && drivers.currentLat != null && drivers.currentLng != null) {
+    maybeSendPresenceHeartbeat({
+      driverId,
+      zoneId,
+      classification,
+      lat: drivers.currentLat,
+      lng: drivers.currentLng,
+      speed: drivers.speed,
+      accuracy: drivers.rawAccuracy,
+      heading: drivers.heading,
+      visitId,
+      force: true,
+    }).catch((err) =>
+      console.warn('[geofenceEngine] presence upsert on enter failed', err)
+    );
+  }
 
   startRecording(
     visitId,
@@ -225,6 +244,25 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   }
 });
 
+// Wait-sort key. Prefer the new blended estimate; fall back to legacy
+// wait_time_minutes so old data still orders. Zones with no usable estimate
+// (insufficient data / no recent movement) sort last instead of jumping to the
+// top just because legacy wait was null/zero.
+export function getWaitSortValue(stat) {
+  if (!stat) return Number.POSITIVE_INFINITY;
+  if (
+    stat.wait_status === 'INSUFFICIENT_DATA' ||
+    stat.wait_status === 'NO_RECENT_MOVEMENT'
+  ) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return (
+    stat.estimated_wait_minutes ??
+    stat.wait_time_minutes ??
+    Number.POSITIVE_INFINITY
+  );
+}
+
 export function getTop20Zones(allZones, sortOption, driverLat, driverLng) {
   if (!allZones || allZones.length === 0) return [];
   const stats = store.getState().zones.stats;
@@ -248,8 +286,8 @@ export function getTop20Zones(allZones, sortOption, driverLat, driverLng) {
     });
   } else if (sortOption === SORT_OPTIONS.WAIT) {
     list.sort((a, b) => {
-      const wa = stats[a.id]?.wait_time_minutes ?? Number.POSITIVE_INFINITY;
-      const wb = stats[b.id]?.wait_time_minutes ?? Number.POSITIVE_INFINITY;
+      const wa = getWaitSortValue(stats[a.id]);
+      const wb = getWaitSortValue(stats[b.id]);
       return wa - wb;
     });
   }

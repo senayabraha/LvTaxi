@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import KalmanFilter from 'kalmanjs';
 import { store } from '../store';
 import { setLocation } from '../store/driversSlice';
+import { presenceHeartbeatFromLocation } from './presenceHeartbeat';
 
 const KALMAN_R = 0.01;
 const KALMAN_Q = 3;
@@ -215,6 +216,11 @@ function handleLocationUpdate(loc) {
       })
     );
   }
+
+  // Throttled presence heartbeat (≈ every 25s) so on-duty/staged drivers keep
+  // refreshing driver_presence.last_ping_at and stay in the 90s live count.
+  // The throttle lives inside presenceHeartbeat — calling it every fix is fine.
+  presenceHeartbeatFromLocation(point);
 
   maybeSwitchPowerMode(derivedSpeed, timestamp);
 }

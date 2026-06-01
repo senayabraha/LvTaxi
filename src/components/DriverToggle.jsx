@@ -10,6 +10,8 @@ import {
   GPS_MODE,
 } from '../lib/locationEngine';
 import { startGeofenceManager } from '../lib/geofenceEngine';
+import { clearDriverPresence } from '../lib/zoneStatsEngine';
+import { resetPresenceHeartbeat } from '../lib/presenceHeartbeat';
 
 const GREEN = '#22C55E';
 const GREY = '#4B5563';
@@ -50,9 +52,15 @@ export default function DriverToggle() {
     dispatch(setStatus(nextStatus));
 
     try {
-      // Off-duty still pings every 5 min so zone counts stay accurate.
+      // Off-duty keeps a low-power GPS watch for geofencing/work-area only —
+      // the driver is cleared from live presence counts (see clearDriverPresence).
       // Notifications are suppressed elsewhere when off-duty.
       if (nextStatus === DRIVER_STATUS.OFF_DUTY) {
+        // Drop out of live counts immediately rather than waiting for the TTL.
+        if (userId) {
+          await clearDriverPresence(userId);
+        }
+        resetPresenceHeartbeat();
         await startLocationTracking(GPS_MODE.PASSIVE);
         await setGPSMode(GPS_MODE.PASSIVE);
         startGeofenceManager();

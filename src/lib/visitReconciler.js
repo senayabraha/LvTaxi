@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { decrementZoneCount } from './zoneStatsEngine';
+import { clearDriverPresence } from './zoneStatsEngine';
 
 export async function closeOrphanedVisits(driverId) {
   if (!driverId) return;
@@ -24,7 +24,12 @@ export async function closeOrphanedVisits(driverId) {
       console.warn('[visitReconciler] close visit failed', updateErr);
       continue;
     }
-    await decrementZoneCount(row.zone_id);
   }
+
+  // Live counts come from active_driver_presence — no legacy decrement.
+  // These visits were abandoned (e.g. app killed in a zone), so clear this
+  // driver's stale presence row rather than touching legacy counters.
+  await clearDriverPresence(driverId);
+
   console.log('[visitReconciler] closed', data.length, 'orphaned visits');
 }

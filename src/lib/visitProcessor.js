@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { extractFeatures } from './trajectoryRecorder';
 import { classifyVisit, VISIT_CLASS } from './behavioralClassifier';
-import { decrementZoneCount, recordLoadEvent } from './zoneStatsEngine';
+import { clearDriverPresence, recordLoadEvent } from './zoneStatsEngine';
 import { sendStagingConfirmation } from './notificationService';
 
 async function classifyRemote(features, driverId) {
@@ -205,9 +205,13 @@ export async function processZoneExit(visitId, driverId, zoneId, gpsPoints, zone
 
   await saveClassification(visitId, classification, confidence, score);
 
-  // Decrement unconditionally — the increment/decrement pair must balance regardless
-  // of classification, otherwise UNKNOWN visits leave cars_staged inflated forever.
-  await decrementZoneCount(zoneId);
+  // Live counts come from active_driver_presence — no legacy decrement here.
+  // The driver has left the zone, so clear their presence row (zone → null,
+  // classification → ACTIVE) which drops them from live counts immediately
+  // instead of waiting out the 90s TTL.
+  if (driverId) {
+    await clearDriverPresence(driverId);
+  }
 
   if (classification === VISIT_CLASS.STAGING) {
     await processAsStaging(visitId, { zoneId });

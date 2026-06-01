@@ -10,6 +10,8 @@ import {
   GPS_MODE,
 } from '../lib/locationEngine';
 import { startGeofenceManager } from '../lib/geofenceEngine';
+import { clearDriverPresence } from '../lib/zoneStatsEngine';
+import { resetPresenceHeartbeat } from '../lib/presenceHeartbeat';
 
 const OPTIONS = [
   { value: DRIVER_STATUS.ACTIVE, label: 'Active', dot: '#22C55E' },
@@ -39,6 +41,11 @@ export default function StatusToggle() {
 
     try {
       if (value === DRIVER_STATUS.OFF_DUTY) {
+        // Drop out of live counts immediately rather than waiting for the TTL.
+        if (session?.user?.id) {
+          await clearDriverPresence(session.user.id);
+        }
+        resetPresenceHeartbeat();
         await startLocationTracking(GPS_MODE.PASSIVE);
         await setGPSMode(GPS_MODE.PASSIVE);
         startGeofenceManager();

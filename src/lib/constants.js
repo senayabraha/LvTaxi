@@ -112,6 +112,13 @@ export const STAGING_ZONES = [
 export const PRESENCE_TTL_SECONDS = 90;
 export const PRESENCE_TTL_MS = PRESENCE_TTL_SECONDS * 1000;
 
+// How often the app refreshes driver_presence.last_ping_at while a driver is
+// on duty. Must be comfortably below PRESENCE_TTL_SECONDS so a staged driver
+// gets several heartbeats before the TTL would expire them from live counts.
+// GPS may still sample every 1s in HIGH mode — only the Supabase write is throttled.
+export const PRESENCE_HEARTBEAT_INTERVAL_SECONDS = 25;
+export const PRESENCE_HEARTBEAT_INTERVAL_MS = PRESENCE_HEARTBEAT_INTERVAL_SECONDS * 1000;
+
 export const DRIVER_STATUS = {
   ACTIVE: 'active',
   STAGED: 'staged',

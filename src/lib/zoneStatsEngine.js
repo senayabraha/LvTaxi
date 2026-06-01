@@ -81,13 +81,15 @@ export async function getDriverPositionInZone(zoneId, driverEnteredAt) {
   return (count ?? 0) + 1;
 }
 
-// ── DEPRECATED ────────────────────────────────────────────────────────────────
-// incrementZoneCount / decrementZoneCount are kept only so existing call
-// sites compile without modification. They still update zone_stats.cars_staged
-// (the legacy display cache) but that value is no longer the live source of
-// truth. Live counts come from active_driver_presence via get_zone_live_stats().
+// ── DEPRECATED — DO NOT CALL FROM APP CODE ───────────────────────────────────
+// incrementZoneCount / decrementZoneCount are retained ONLY as backward-compat
+// exports. As of the presence-based rework, NO live app flow calls them — live
+// counts come exclusively from active_driver_presence via get_zone_live_stats().
+// They still poke zone_stats.cars_staged (a legacy display cache that is no
+// longer the source of truth).
 //
-// Do not add new call sites. Remove existing ones in a follow-up cleanup.
+// Do not add new call sites. If you find yourself reaching for these, write a
+// driver_presence row via upsertDriverPresence()/clearDriverPresence() instead.
 
 export async function incrementZoneCount(zoneId) {
   const { error } = await supabase.rpc('increment_zone_count', {
