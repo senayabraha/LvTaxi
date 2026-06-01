@@ -1,8 +1,20 @@
+// ── Trajectory recorder ───────────────────────────────────────────────────────
+// Buffers raw GPS fixes for the active visit IN MEMORY ONLY. There is NO
+// per-point write to Supabase here — points are handed back to visitProcessor on
+// zone exit, which persists them as a single row (one visit = one write). The
+// buffer is bounded by TRAJECTORY_MAX_BUFFER_POINTS so a long visit can never
+// grow it without limit.
 import { supabase } from './supabase';
 import { onSmoothedLocation, getDistanceMeters } from './locationEngine';
+import { TRAJECTORY_MAX_BUFFER_POINTS } from './constants';
+import { recordTrajectoryFlush } from './locationWritePolicy';
 
 const STATIONARY_SPEED_MPS = 0.5;
 const STOP_GAP_MS = 3000;
+// Local sampling floor: even though HIGH-mode GPS can fire every 1s, we keep at
+// most ~1 buffered point/sec so the in-memory buffer stays lean. This is a local
+// throttle on the BUFFER, not a backend write.
+const MIN_SAMPLE_GAP_MS = 950;
 
 let activeVisitId = null;
 let activeZoneCenter = null;
@@ -11,19 +23,36 @@ let unsubscribe = null;
 let sampleTimer = null;
 let lastSampledAt = 0;
 
-function pushPoint(point) {
+// Keep the buffer bounded. When we exceed the cap, drop every other point from
+// the *middle* of the buffer (downsample) while always preserving the first and
+// last fixes — entry/exit speed and dwell endpoints must survive so the visit
+// can still be classified. This halves resolution gracefully instead of
+// dropping the newest data or letting the array grow forever.
+function enforceBufferLimit() {
+  if (points.length <= TRAJECTORY_MAX_BUFFER_POINTS) return;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const middle = points.slice(1, points.length - 1);
+  const downsampled = middle.filter((_, i) => i % 2 === 0);
+  points = [first, ...downsampled, last];
+}
+
+// Append a single fix to the local buffer only. Never writes to Supabase.
+export function appendTrajectoryPoint(point) {
+  if (!point) return;
   const now = point.timestamp ?? Date.now();
-  if (now - lastSampledAt < 950) return;
+  if (now - lastSampledAt < MIN_SAMPLE_GAP_MS) return;
   lastSampledAt = now;
   points.push({
     timestamp: now,
     lat: point.lat,
     lng: point.lng,
+    accuracy: point.accuracy,
     speed: point.speed,
     heading: point.heading,
-    accuracy: point.accuracy,
     acceleration: point.acceleration,
   });
+  enforceBufferLimit();
 }
 
 export function startRecording(visitId, zoneCenter = null) {
@@ -34,7 +63,7 @@ export function startRecording(visitId, zoneCenter = null) {
   lastSampledAt = 0;
 
   unsubscribe = onSmoothedLocation((point) => {
-    pushPoint(point);
+    appendTrajectoryPoint(point);
   });
 }
 
@@ -52,6 +81,11 @@ export async function stopRecording({ persist = true } = {}) {
   const collected = points.slice();
   const features = extractFeatures(collected, activeZoneCenter);
 
+  // NOTE: geofenceEngine calls stopRecording({ persist: false }) — the actual
+  // persistence happens once in visitProcessor.processZoneExit (one upsert per
+  // visit). This persist:true branch is a standalone fallback for callers that
+  // want the recorder to save directly; it is still ONE write per visit, never
+  // one write per point.
   if (persist && visitId && collected.length > 0) {
     const { error } = await supabase.from('trajectories').insert({
       visit_id: visitId,
@@ -60,6 +94,8 @@ export async function stopRecording({ persist = true } = {}) {
     });
     if (error) {
       console.warn('[trajectoryRecorder] failed to save trajectory', error);
+    } else {
+      recordTrajectoryFlush();
     }
   }
 
@@ -73,6 +109,42 @@ export async function stopRecording({ persist = true } = {}) {
 
 export function getCurrentPoints() {
   return points.slice();
+}
+
+// ── Buffer helpers ────────────────────────────────────────────────────────────
+
+// Read-only snapshot of the current in-memory buffer.
+export function getTrajectoryBuffer() {
+  return points.slice();
+}
+
+// Return a copy of the buffer for an intermediate batch flush WITHOUT clearing
+// the active visit. Intended for a future long-visit / backgrounding batch path;
+// callers are responsible for persisting the returned points as a single batch
+// (never one write per point). Today the default flow uses finalizeTrajectory at
+// exit instead, so this is provided for completeness/hardening.
+export function flushTrajectoryBatch({ reason = 'manual' } = {}) {
+  const batch = points.slice();
+  return { visitId: activeVisitId, reason, points: batch };
+}
+
+// Finalize the active visit: returns the buffered points + extracted features so
+// visitProcessor can persist them as one row, then clears local state.
+export function finalizeTrajectory({ visitId } = {}) {
+  const collected = points.slice();
+  const features = extractFeatures(collected, activeZoneCenter);
+  const id = visitId ?? activeVisitId;
+  clearTrajectoryBuffer();
+  return { visitId: id, gpsPoints: collected, features };
+}
+
+// Drop everything without persisting. Used after a successful flush/finalize or
+// when a visit is abandoned.
+export function clearTrajectoryBuffer() {
+  points = [];
+  lastSampledAt = 0;
+  activeVisitId = null;
+  activeZoneCenter = null;
 }
 
 export function extractFeatures(gpsPoints, zoneCenter = null) {

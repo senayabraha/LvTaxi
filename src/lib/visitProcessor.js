@@ -3,6 +3,59 @@ import { extractFeatures } from './trajectoryRecorder';
 import { classifyVisit, VISIT_CLASS } from './behavioralClassifier';
 import { clearDriverPresence, recordLoadEvent } from './zoneStatsEngine';
 import { sendStagingConfirmation } from './notificationService';
+import { recordTrajectoryFlush } from './locationWritePolicy';
+import {
+  savePendingTrajectory,
+  loadPendingTrajectories,
+  clearPendingTrajectory,
+} from './offlineCache';
+
+// Persist one trajectory row for a visit (one visit = one write — never one
+// write per GPS point). On failure (e.g. offline) the row is queued to
+// AsyncStorage and retried later via retryPendingTrajectories(). Returns true on
+// a successful Supabase write.
+async function persistTrajectory(row) {
+  const { error } = await supabase
+    .from('trajectories')
+    .upsert(row, { onConflict: 'visit_id' });
+  if (error) {
+    console.warn('[visitProcessor] trajectory persist failed, queuing', error);
+    await savePendingTrajectory(row);
+    return false;
+  }
+  recordTrajectoryFlush();
+  return true;
+}
+
+// Retry any trajectory saves that were queued while offline. Safe to call on
+// app launch and on reconnect — each successful upsert is dequeued.
+export async function retryPendingTrajectories() {
+  const pending = await loadPendingTrajectories();
+  if (!pending.length) return;
+  for (const row of pending) {
+    const { error } = await supabase
+      .from('trajectories')
+      .upsert(
+        {
+          visit_id: row.visit_id,
+          gps_points: row.gps_points,
+          features: row.features,
+          ai_classification: row.ai_classification,
+          ai_confidence: row.ai_confidence,
+        },
+        { onConflict: 'visit_id' }
+      );
+    if (!error) {
+      recordTrajectoryFlush();
+      await clearPendingTrajectory(row.visit_id);
+    } else {
+      // Leave it queued for the next attempt; stop early to avoid hammering a
+      // still-offline backend.
+      console.warn('[visitProcessor] pending trajectory retry failed', error);
+      break;
+    }
+  }
+}
 
 async function classifyRemote(features, driverId) {
   try {
@@ -190,18 +243,14 @@ export async function processZoneExit(visitId, driverId, zoneId, gpsPoints, zone
   const { classification, confidence, score } =
     remote ?? classifyVisit(features, history);
 
-  await supabase
-    .from('trajectories')
-    .upsert(
-      {
-        visit_id: visitId,
-        gps_points: gpsPoints,
-        features,
-        ai_classification: classification,
-        ai_confidence: confidence,
-      },
-      { onConflict: 'visit_id' }
-    );
+  // Single per-visit trajectory write. If offline, it is queued and retried.
+  await persistTrajectory({
+    visit_id: visitId,
+    gps_points: gpsPoints,
+    features,
+    ai_classification: classification,
+    ai_confidence: confidence,
+  });
 
   await saveClassification(visitId, classification, confidence, score);
 

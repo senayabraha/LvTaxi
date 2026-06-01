@@ -13,6 +13,7 @@ import {
   PRESENCE_HEARTBEAT_INTERVAL_MS,
 } from './constants';
 import { upsertDriverPresence } from './zoneStatsEngine';
+import { recordPresenceWrite } from './locationWritePolicy';
 
 let lastHeartbeatAt = 0;
 
@@ -47,6 +48,11 @@ export async function maybeSendPresenceHeartbeat({
   }
   lastHeartbeatAt = now;
 
+  // Lightweight live-presence payload ONLY: a single current position plus the
+  // identifiers needed for live counts/staleness. We deliberately do NOT send
+  // the buffered trajectory array here — raw GPS history is persisted separately
+  // at visit exit. This keeps each heartbeat tiny so a ~25s cadence per driver
+  // stays cheap on Supabase.
   await upsertDriverPresence({
     driverId,
     zoneId: zoneId ?? null,
@@ -58,6 +64,7 @@ export async function maybeSendPresenceHeartbeat({
     heading,
     visitId: visitId ?? null,
   });
+  recordPresenceWrite();
   return true;
 }
 

@@ -106,6 +106,42 @@ export const STAGING_ZONES = [
   },
 ];
 
+// ── Location write policy ─────────────────────────────────────────────────────
+// Three separate concepts, intentionally decoupled. Do NOT collapse them:
+//
+//   1. GPS acquisition       — how often the phone READS a fix.
+//                              Can be every 1s in HIGH mode (locationEngine.js).
+//                              This is a local, on-device read. It costs battery,
+//                              not backend writes.
+//   2. Presence heartbeat    — how often Supabase hears "driver is still here".
+//                              Throttled to PRESENCE_HEARTBEAT_INTERVAL_SECONDS
+//                              (~25s). Lightweight row only (no point arrays).
+//                              Keeps driver_presence.last_ping_at fresh for the
+//                              90s live-count TTL. NOT the same as raw trajectory.
+//   3. Trajectory persistence — how raw GPS history is SAVED for classification.
+//                              Buffered locally and written once per visit at
+//                              zone exit (Option A), never one write per point.
+//
+// Why 25s and not 3–5s for presence: Supabase/Postgres is the current hot store
+// and a 3–5s heartbeat per driver is a write firehose at scale. A 3–5s live
+// heartbeat is ONLY appropriate for a future Redis/WebSocket/MQTT hot path — it
+// is NOT appropriate for direct Supabase writes today. Do not lower this while
+// Supabase is the live presence store.
+
+// GPS can sample often locally, but backend writes must be controlled.
+// These bound a *future* batch-flush path (Option B). The current default
+// (Option A) keeps points in memory and persists once at visit exit, so the
+// flush interval only matters if/when long visits force an intermediate flush.
+export const TRAJECTORY_BATCH_FLUSH_INTERVAL_SECONDS = 5;
+export const TRAJECTORY_BATCH_FLUSH_INTERVAL_MS =
+  TRAJECTORY_BATCH_FLUSH_INTERVAL_SECONDS * 1000;
+
+// Hard cap on points held in the in-memory trajectory buffer. When exceeded the
+// recorder downsamples (drops oldest non-critical points) so the buffer can
+// never grow unbounded during a long visit. Enough points remain to classify
+// staging / drop-off / passing.
+export const TRAJECTORY_MAX_BUFFER_POINTS = 300;
+
 // ── Presence freshness ────────────────────────────────────────────────────────
 // Single source of truth for the staleness window used everywhere:
 // SQL views, RPC functions, UI freshness labels, and live counts.
@@ -115,7 +151,10 @@ export const PRESENCE_TTL_MS = PRESENCE_TTL_SECONDS * 1000;
 // How often the app refreshes driver_presence.last_ping_at while a driver is
 // on duty. Must be comfortably below PRESENCE_TTL_SECONDS so a staged driver
 // gets several heartbeats before the TTL would expire them from live counts.
-// GPS may still sample every 1s in HIGH mode — only the Supabase write is throttled.
+// GPS may still sample every 1s in HIGH mode — only the Supabase write is
+// throttled. Presence heartbeat is NOT raw trajectory persistence: it carries a
+// single lightweight position, never the buffered point array. Keep this around
+// 25s while Supabase is the hot store (see the 3–5s caveat above).
 export const PRESENCE_HEARTBEAT_INTERVAL_SECONDS = 25;
 export const PRESENCE_HEARTBEAT_INTERVAL_MS = PRESENCE_HEARTBEAT_INTERVAL_SECONDS * 1000;
 

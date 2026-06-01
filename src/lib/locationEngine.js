@@ -3,6 +3,7 @@ import KalmanFilter from 'kalmanjs';
 import { store } from '../store';
 import { setLocation } from '../store/driversSlice';
 import { presenceHeartbeatFromLocation } from './presenceHeartbeat';
+import { recordGpsFix } from './locationWritePolicy';
 
 const KALMAN_R = 0.01;
 const KALMAN_Q = 3;
@@ -194,6 +195,10 @@ function handleLocationUpdate(loc) {
   };
 
   lastPoint = point;
+
+  // Count the local GPS read (dev-only). This is an on-device fix, NOT a backend
+  // write — it lets developers confirm GPS ≫ presence/trajectory writes.
+  recordGpsFix();
 
   for (const listener of listeners) {
     try {
