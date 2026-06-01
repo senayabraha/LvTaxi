@@ -124,7 +124,9 @@ Dev-only observability for these tests comes from `[offlineRetry] …` logs
       (`pendingSideEffects` > 0).
 - [ ] Restore the network.
 - [ ] Confirm retry re-applies `zone_visits.classification` /
-      `trajectories.ai_classification` and the side effect is removed.
+      `confidence_score` **only** and the side effect is removed. (Trajectory
+      classification is restored by the pending-trajectory replay, not by
+      `SAVE_CLASSIFICATION` — it must not be written to `trajectories` twice.)
 
 ### 2.1.4 Load-event side-effect queue
 

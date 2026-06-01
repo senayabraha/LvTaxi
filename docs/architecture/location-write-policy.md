@@ -96,10 +96,16 @@ any new high-frequency write path.
   (`lvtaxi:pending:trajectories:v1`). The post-visit side effects live in a
   separate, compact queue (`lvtaxi:pending:visit_side_effects:v1`) that never
   stores GPS arrays.
+- **Classification ownership split (no duplicate writes).** The pending
+  trajectory row owns `trajectories.ai_classification` / `ai_confidence` (written
+  by `persistTrajectorySafe`). The `SAVE_CLASSIFICATION` side effect owns only
+  the `zone_visits` classification fields. Neither writes the other's columns, so
+  classification is never written to `trajectories` twice.
 - **Queued side effects** (`offlineCache`, bounded to 50, de-duped by a stable
   `id`):
   - `SAVE_CLASSIFICATION` — re-applies `zone_visits.classification` /
-    `confidence_score` and `trajectories.ai_classification` / `ai_confidence`.
+    `confidence_score` **only** (trajectory classification is restored by the
+    pending-trajectory replay, not here).
   - `RECORD_LOAD_EVENT` — replays `record_load_event(zoneId)` for flow calc.
   - `UPSERT_DRIVER_HISTORY` — replays the `driver_zone_history` upsert deltas.
 - **Safe per-write wrappers** in `visitProcessor` (`persistTrajectorySafe`,

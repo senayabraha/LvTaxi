@@ -26,6 +26,10 @@ const SIDE_EFFECT = {
 // Persist one trajectory row for a visit (one visit = one write — never one
 // write per GPS point). On failure (e.g. offline) the row is queued to
 // AsyncStorage and retried later. Returns true on a successful Supabase write.
+//
+// persistTrajectorySafe owns the trajectories row, including ai_classification
+// and ai_confidence. saveClassificationSafe owns only zone_visits classification.
+// Do not duplicate trajectory classification writes.
 async function persistTrajectorySafe(row) {
   const { error } = await supabase
     .from('trajectories')
@@ -169,27 +173,20 @@ async function fetchZoneName(zoneId) {
   return data?.name ?? 'this zone';
 }
 
-// Raw classification write: updates zone_visits + trajectories. Returns true
-// only if BOTH updates succeed, so a partial/offline failure can be queued.
+// Classification write: updates ONLY zone_visits. The trajectories row (with
+// ai_classification/ai_confidence) is owned by persistTrajectorySafe, so we must
+// NOT write trajectories here — doing so duplicated the classification write and
+// created duplicate offline replay work in Phase 2.1.
 async function doSaveClassification(visitId, classification, confidence) {
-  const { error: visitErr } = await supabase
+  const { error } = await supabase
     .from('zone_visits')
     .update({
       classification,
       confidence_score: confidence,
     })
     .eq('id', visitId);
-
-  const { error: trajErr } = await supabase
-    .from('trajectories')
-    .update({ ai_classification: classification, ai_confidence: confidence })
-    .eq('visit_id', visitId);
-
-  if (visitErr || trajErr) {
-    console.warn(
-      '[visitProcessor] saveClassification failed',
-      visitErr ?? trajErr
-    );
+  if (error) {
+    console.warn('[visitProcessor] saveClassification failed', error);
     return false;
   }
   return true;
