@@ -106,6 +106,12 @@ export const STAGING_ZONES = [
   },
 ];
 
+// ── Presence freshness ────────────────────────────────────────────────────────
+// Single source of truth for the staleness window used everywhere:
+// SQL views, RPC functions, UI freshness labels, and live counts.
+export const PRESENCE_TTL_SECONDS = 90;
+export const PRESENCE_TTL_MS = PRESENCE_TTL_SECONDS * 1000;
+
 export const DRIVER_STATUS = {
   ACTIVE: 'active',
   STAGED: 'staged',

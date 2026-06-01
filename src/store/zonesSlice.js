@@ -26,7 +26,10 @@ const zonesSlice = createSlice({
     },
     updateZoneStat(state, action) {
       const row = action.payload;
-      state.stats[row.zone_id] = row;
+      // Merge so enriched fields from the live-stats RPC (estimated_wait_*,
+      // wait_confidence, etc.) are not overwritten by leaner realtime events
+      // that only carry the legacy zone_stats columns.
+      state.stats[row.zone_id] = { ...(state.stats[row.zone_id] ?? {}), ...row };
     },
     setSort(state, action) {
       state.activeSort = action.payload;

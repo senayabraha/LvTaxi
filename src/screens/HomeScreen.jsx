@@ -113,9 +113,17 @@ export default function HomeScreen() {
           (a.stat?.flow_rate_per_hour ?? 0)
       );
     } else {
+      // Sort by best estimated wait. Prefer new estimated_wait_minutes;
+      // fall back to legacy wait_time_minutes so old data still sorts correctly.
       active.sort((a, b) => {
-        const aw = a.stat?.wait_time_minutes ?? Infinity;
-        const bw = b.stat?.wait_time_minutes ?? Infinity;
+        const aw =
+          a.stat?.estimated_wait_minutes ??
+          a.stat?.wait_time_minutes ??
+          Infinity;
+        const bw =
+          b.stat?.estimated_wait_minutes ??
+          b.stat?.wait_time_minutes ??
+          Infinity;
         return aw - bw;
       });
     }
@@ -142,10 +150,12 @@ export default function HomeScreen() {
     };
   }, [currentZoneId, zoneEntryTime, stats]);
 
+  // Prefer new estimated_wait_minutes; fall back to legacy field.
+  const currentZoneStat = currentZoneId ? stats[currentZoneId] : null;
   const currentZoneWait =
-    currentZoneId && stats[currentZoneId]?.wait_time_minutes != null
-      ? stats[currentZoneId].wait_time_minutes
-      : null;
+    currentZoneStat?.estimated_wait_minutes ??
+    currentZoneStat?.wait_time_minutes ??
+    null;
 
   const renderItem = useCallback(
     ({ item }) => (

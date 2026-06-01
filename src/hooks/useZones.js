@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { supabase } from '../lib/supabase';
+import { fetchLiveZoneStats } from '../lib/zoneStatsEngine';
 import {
   setZones,
   setStats,
@@ -34,6 +35,10 @@ function emitFlash(zoneId) {
 
 const MAX_BACKOFF_MS = 60_000;
 
+// How often to re-poll live stats from the RPC (supplements realtime).
+// Live counts depend on 90-second TTL pings so polling keeps things honest.
+const LIVE_POLL_INTERVAL_MS = 30_000;
+
 export function useZones() {
   const dispatch = useDispatch();
   const allZones = useSelector((s) => s.zones.allZones);
@@ -45,34 +50,66 @@ export function useZones() {
   const cancelledRef = useRef(false);
   const retryDelayRef = useRef(1000);
   const retryTimerRef = useRef(null);
+  const pollTimerRef = useRef(null);
+
+  // Merge an array of live-stats rows into Redux (same shape as updateZoneStat).
+  const mergeLiveStats = useCallback(
+    (rows) => {
+      if (!rows?.length) return;
+      const merged = {};
+      for (const row of rows) merged[row.zone_id] = row;
+      // Dispatch each row so zonesSlice.updateZoneStat handles it normally.
+      for (const row of rows) dispatch(updateZoneStat(row));
+      setStatsUpdatedAt(Date.now());
+      saveStatsCache(merged);
+    },
+    [dispatch]
+  );
+
+  const loadLiveStats = useCallback(async () => {
+    if (cancelledRef.current) return;
+    const rows = await fetchLiveZoneStats();
+    if (!cancelledRef.current && rows) {
+      mergeLiveStats(rows);
+    }
+  }, [mergeLiveStats]);
 
   const load = useCallback(
     async ({ showLoading = true } = {}) => {
       if (showLoading) dispatch(setLoading(true));
       try {
-        const [zonesRes, statsRes] = await Promise.all([
+        const [zonesRes, liveStats] = await Promise.all([
           supabase
             .from('staging_zones')
             .select('*')
             .eq('active', true)
             .eq('visible_to_drivers', true),
-          supabase.from('zone_stats').select('*'),
+          fetchLiveZoneStats(),
         ]);
 
         if (cancelledRef.current) return;
-
         if (zonesRes.error) throw zonesRes.error;
-        if (statsRes.error) throw statsRes.error;
 
         const zones = zonesRes.data ?? [];
-        const statsRows = statsRes.data ?? [];
         dispatch(setZones(zones));
-        dispatch(setStats(statsRows));
-        const statsMap = {};
-        for (const r of statsRows) statsMap[r.zone_id] = r;
         saveZonesCache(zones);
-        saveStatsCache(statsMap);
-        setStatsUpdatedAt(Date.now());
+
+        if (liveStats) {
+          mergeLiveStats(liveStats);
+        } else {
+          // Fallback: load from zone_stats table directly.
+          const { data: statsRows, error: statsErr } = await supabase
+            .from('zone_stats')
+            .select('*');
+          if (!statsErr && statsRows) {
+            dispatch(setStats(statsRows));
+            const statsMap = {};
+            for (const r of statsRows) statsMap[r.zone_id] = r;
+            saveStatsCache(statsMap);
+            setStatsUpdatedAt(Date.now());
+          }
+        }
+
         dispatch(setError(null));
         retryDelayRef.current = 1000;
       } catch (err) {
@@ -87,7 +124,7 @@ export function useZones() {
         if (showLoading) dispatch(setLoading(false));
       }
     },
-    [dispatch]
+    [dispatch, mergeLiveStats]
   );
 
   const refresh = useCallback(async () => {
@@ -102,6 +139,7 @@ export function useZones() {
   useEffect(() => {
     cancelledRef.current = false;
 
+    // Warm from cache immediately.
     (async () => {
       const cachedZones = await loadZonesCache();
       const cached = await loadStatsCache();
@@ -114,8 +152,17 @@ export function useZones() {
       if (cached.updatedAt) setStatsUpdatedAt(cached.updatedAt);
     })();
 
+    // Initial load (zones + live stats from RPC).
     load();
 
+    // Poll live stats every 30 s so stale drivers fall out of count even
+    // without a realtime event.
+    pollTimerRef.current = setInterval(() => {
+      loadLiveStats();
+    }, LIVE_POLL_INTERVAL_MS);
+
+    // Realtime subscription on zone_stats for instant display flashes.
+    // Note: realtime shows legacy cache rows — enriched fields come from polling.
     const channel = supabase
       .channel('zone_stats_changes')
       .on(
@@ -126,6 +173,8 @@ export function useZones() {
             dispatch(updateZoneStat(payload.new));
             setStatsUpdatedAt(Date.now());
             emitFlash(payload.new.zone_id);
+            // Refresh enriched fields from live RPC after every realtime ping.
+            loadLiveStats();
           }
         }
       )
@@ -137,6 +186,7 @@ export function useZones() {
             dispatch(updateZoneStat(payload.new));
             setStatsUpdatedAt(Date.now());
             emitFlash(payload.new.zone_id);
+            loadLiveStats();
           }
         }
       )
@@ -145,9 +195,10 @@ export function useZones() {
     return () => {
       cancelledRef.current = true;
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [dispatch, load]);
+  }, [dispatch, load, loadLiveStats]);
 
   return {
     allZones,

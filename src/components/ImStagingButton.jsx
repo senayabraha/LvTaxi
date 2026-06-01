@@ -5,7 +5,7 @@ import { setStatus, zoneEntered } from '../store/driversSlice';
 import { DRIVER_STATUS } from '../lib/constants';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/locationEngine';
-import { incrementZoneCount } from '../lib/zoneStatsEngine';
+import { incrementZoneCount, upsertDriverPresence } from '../lib/zoneStatsEngine';
 
 const NEAR_METERS = 200;
 
@@ -29,7 +29,18 @@ export default function ImStagingButton() {
       try {
         dispatch(setStatus(DRIVER_STATUS.STAGED));
         dispatch(zoneEntered(zone.id));
+        // Legacy cache update (deprecated path — kept for compat).
         await incrementZoneCount(zone.id);
+        // Write presence so live count RPC picks this driver up immediately.
+        if (driverId) {
+          await upsertDriverPresence({
+            driverId,
+            zoneId: zone.id,
+            classification: 'STAGING',
+            lat: currentLat,
+            lng: currentLng,
+          });
+        }
         if (driverId) {
           const nowIso = new Date().toISOString();
           const { error } = await supabase
