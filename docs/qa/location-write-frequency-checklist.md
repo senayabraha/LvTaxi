@@ -117,9 +117,12 @@ Dev-only observability for these tests comes from `[offlineRetry] …` logs
 - [ ] Relaunch while online.
 - [ ] Confirm `[offlineRetry] reason=startup-online …` runs and the queue clears.
 
-### 2.1.3 Classification side-effect queue
+### 2.1.3 Classification side-effect queue (pre-013 fallback path)
 
-- [ ] Force a Supabase failure during `saveClassificationSafe` (offline at exit).
+This path only runs when the `finalize_visit_classification` RPC is NOT deployed.
+
+- [ ] Temporarily simulate the RPC being absent (or test against a DB without
+      migration 013) and exit a zone offline.
 - [ ] Confirm a `SAVE_CLASSIFICATION` side effect is queued
       (`pendingSideEffects` > 0).
 - [ ] Restore the network.
@@ -155,6 +158,21 @@ Dev-only observability for these tests comes from `[offlineRetry] …` logs
 - [ ] Enter one zone, then quickly enter another (or rapidly restart recording).
 - [ ] Confirm no stale buffer leaks across visits and exactly one trajectory row
       is written per visit (no duplicate write).
+
+### 2.1.8 Atomic classification finalize (no cross-table window)
+
+Requires migration `013_finalize_visit_classification.sql` deployed.
+
+- [ ] Complete a normal staging visit online and exit the zone.
+- [ ] Confirm `trajectories.ai_classification` / `ai_confidence` AND
+      `zone_visits.classification` / `confidence_score` are both populated and
+      agree — there is no moment where only one is set.
+- [ ] Exit a zone offline, then reconnect.
+- [ ] Confirm the queued pending trajectory replays via the atomic RPC and that
+      BOTH tables become consistent in the same pass (not one queue ahead of the
+      other).
+- [ ] Confirm ownership: only the visit's own driver can finalize it (the RPC
+      rejects another driver's `visit_id`).
 
 ### Phase 2.1 acceptance
 

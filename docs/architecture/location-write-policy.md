@@ -96,11 +96,23 @@ any new high-frequency write path.
   (`lvtaxi:pending:trajectories:v1`). The post-visit side effects live in a
   separate, compact queue (`lvtaxi:pending:visit_side_effects:v1`) that never
   stores GPS arrays.
-- **Classification ownership split (no duplicate writes).** The pending
-  trajectory row owns `trajectories.ai_classification` / `ai_confidence` (written
-  by `persistTrajectorySafe`). The `SAVE_CLASSIFICATION` side effect owns only
-  the `zone_visits` classification fields. Neither writes the other's columns, so
-  classification is never written to `trajectories` twice.
+- **Atomic classification finalize (no cross-table window).** At zone exit,
+  `finalizeVisitClassification()` writes BOTH `trajectories`
+  (`ai_classification`/`ai_confidence`, plus `gps_points`/`features`) AND
+  `zone_visits` (`classification`/`confidence_score`) in **one transaction** via
+  the `finalize_visit_classification` RPC (migration `013`). Because both writes
+  share a transaction, the two tables can never be momentarily out of sync. On a
+  genuine offline/transient failure the single combined trajectory row is queued
+  and its replay (`replayPendingTrajectory`) restores **both** tables together —
+  via the same atomic RPC. If the RPC isn't deployed yet (pre-013), the code
+  falls back to the legacy per-table writes (`persistTrajectorySafe` +
+  `saveClassificationSafe`), and the replay path keeps `zone_visits` in step with
+  a sequential update.
+- **Classification ownership split (no duplicate writes).** Within the atomic
+  RPC, `trajectories` owns `ai_classification`/`ai_confidence` and `zone_visits`
+  owns `classification`/`confidence_score`. The fallback `SAVE_CLASSIFICATION`
+  side effect owns only the `zone_visits` fields. Neither path writes the other's
+  columns, so classification is never written to `trajectories` twice.
 - **Queued side effects** (`offlineCache`, bounded to 50, de-duped by a stable
   `id`):
   - `SAVE_CLASSIFICATION` — re-applies `zone_visits.classification` /

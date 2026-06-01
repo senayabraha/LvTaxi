@@ -23,13 +23,88 @@ const SIDE_EFFECT = {
   UPSERT_DRIVER_HISTORY: 'UPSERT_DRIVER_HISTORY',
 };
 
+// True when an RPC error means the function isn't deployed yet (so we can fall
+// back to the legacy per-table writes until migration 013 is applied).
+function isMissingFunctionError(error) {
+  if (!error) return false;
+  if (error.code === 'PGRST202') return true;
+  const msg = (error.message || '').toLowerCase();
+  return (
+    msg.includes('could not find the function') ||
+    msg.includes('schema cache') ||
+    (msg.includes('function') && msg.includes('does not exist'))
+  );
+}
+
+// Atomically finalize a visit's classification: writes the trajectories row
+// (gps_points/features/ai_classification/ai_confidence) AND zone_visits
+// (classification/confidence_score) in ONE transaction via the
+// finalize_visit_classification RPC (migration 013). Because both writes share
+// a transaction, the two tables can never be momentarily out of sync.
+//
+//   - Success                     → done, both tables consistent.
+//   - RPC not deployed (pre-013)  → fall back to the legacy two-write path so
+//                                   the app keeps working before the migration.
+//   - Genuine failure (offline)   → queue ONE pending trajectory row; its replay
+//                                   restores BOTH tables together (no divergence).
+//
+// Returns { ok, warnings }.
+async function finalizeVisitClassification({
+  visitId,
+  gpsPoints,
+  features,
+  classification,
+  confidence,
+}) {
+  const row = {
+    visit_id: visitId,
+    gps_points: gpsPoints,
+    features,
+    ai_classification: classification,
+    ai_confidence: confidence,
+  };
+
+  const { error } = await supabase.rpc('finalize_visit_classification', {
+    p_visit_id: visitId,
+    p_gps_points: gpsPoints,
+    p_features: features,
+    p_classification: classification,
+    p_confidence: confidence,
+  });
+
+  if (!error) {
+    recordTrajectoryFlush();
+    return { ok: true, warnings: [] };
+  }
+
+  // Migration 013 not applied yet — fall back to the legacy per-table writes.
+  if (isMissingFunctionError(error)) {
+    const warnings = [];
+    if (!(await persistTrajectorySafe(row))) warnings.push('trajectory');
+    if (!(await saveClassificationSafe({ visitId, classification, confidence })))
+      warnings.push('classification');
+    return { ok: warnings.length === 0, warnings };
+  }
+
+  // Offline / transient: queue the combined row so a single atomic replay
+  // restores both tables together.
+  console.warn(
+    '[visitProcessor] finalize_visit_classification failed, queuing',
+    error
+  );
+  await savePendingTrajectory(row);
+  return { ok: false, warnings: ['finalize'] };
+}
+
 // Persist one trajectory row for a visit (one visit = one write — never one
 // write per GPS point). On failure (e.g. offline) the row is queued to
 // AsyncStorage and retried later. Returns true on a successful Supabase write.
 //
 // persistTrajectorySafe owns the trajectories row, including ai_classification
 // and ai_confidence. saveClassificationSafe owns only zone_visits classification.
-// Do not duplicate trajectory classification writes.
+// In the normal path both are written atomically by finalizeVisitClassification;
+// these two wrappers are the pre-013 fallback. Do not duplicate trajectory
+// classification writes.
 async function persistTrajectorySafe(row) {
   const { error } = await supabase
     .from('trajectories')
@@ -43,8 +118,62 @@ async function persistTrajectorySafe(row) {
   return true;
 }
 
+// Replay one queued trajectory. Prefers the atomic RPC so zone_visits
+// classification is restored together with the trajectory row; falls back to a
+// sequential trajectory-upsert + zone_visits-update if the RPC isn't deployed.
+// Returns true only if the visit is fully restored.
+async function replayPendingTrajectory(row) {
+  if (row.ai_classification != null) {
+    const { error } = await supabase.rpc('finalize_visit_classification', {
+      p_visit_id: row.visit_id,
+      p_gps_points: row.gps_points,
+      p_features: row.features,
+      p_classification: row.ai_classification,
+      p_confidence: row.ai_confidence,
+    });
+    if (!error) return true;
+    if (!isMissingFunctionError(error)) {
+      console.warn('[visitProcessor] pending trajectory RPC retry failed', error);
+      return false;
+    }
+    // else: RPC absent → fall through to legacy sequential restore.
+  }
+
+  const { error: tErr } = await supabase
+    .from('trajectories')
+    .upsert(
+      {
+        visit_id: row.visit_id,
+        gps_points: row.gps_points,
+        features: row.features,
+        ai_classification: row.ai_classification,
+        ai_confidence: row.ai_confidence,
+      },
+      { onConflict: 'visit_id' }
+    );
+  if (tErr) {
+    console.warn('[visitProcessor] pending trajectory retry failed', tErr);
+    return false;
+  }
+  // Keep zone_visits in step even without the RPC.
+  if (row.ai_classification != null) {
+    const { error: zErr } = await supabase
+      .from('zone_visits')
+      .update({
+        classification: row.ai_classification,
+        confidence_score: row.ai_confidence,
+      })
+      .eq('id', row.visit_id);
+    if (zErr) {
+      console.warn('[visitProcessor] pending zone_visit retry failed', zErr);
+      return false;
+    }
+  }
+  return true;
+}
+
 // Retry any trajectory saves that were queued while offline. Safe to call on
-// app launch and on reconnect — each successful upsert is dequeued. Stops early
+// app launch and on reconnect — each successful replay is dequeued. Stops early
 // on the first still-failing write so we never hammer an offline backend.
 // Returns { saved, failed } for dev diagnostics.
 export async function retryPendingTrajectories() {
@@ -53,24 +182,12 @@ export async function retryPendingTrajectories() {
   let failed = 0;
   if (!pending.length) return { saved, failed };
   for (const row of pending) {
-    const { error } = await supabase
-      .from('trajectories')
-      .upsert(
-        {
-          visit_id: row.visit_id,
-          gps_points: row.gps_points,
-          features: row.features,
-          ai_classification: row.ai_classification,
-          ai_confidence: row.ai_confidence,
-        },
-        { onConflict: 'visit_id' }
-      );
-    if (!error) {
+    const ok = await replayPendingTrajectory(row);
+    if (ok) {
       recordTrajectoryFlush();
       await clearPendingTrajectory(row.visit_id);
       saved += 1;
     } else {
-      console.warn('[visitProcessor] pending trajectory retry failed', error);
       failed += 1;
       break;
     }
@@ -406,22 +523,18 @@ export async function processZoneExit(visitId, driverId, zoneId, gpsPoints, zone
   const { classification, confidence, score } =
     remote ?? classifyVisit(features, history);
 
-  // Each step is individually safe — a single offline write failure queues a
-  // compact retry record and never throws, so one failed side effect can't
-  // abort the rest of the exit. Live presence still clears immediately when the
-  // network is up; otherwise the 90s TTL drops the driver from live counts.
-  const warnings = [];
-
-  if (!(await persistTrajectorySafe({
-    visit_id: visitId,
-    gps_points: gpsPoints,
+  // Atomic finalize: trajectory row + zone_visits classification are written in
+  // a single transaction (RPC), so the two tables can never be momentarily out
+  // of sync. clearPresence + the staging/dropoff side effects remain individually
+  // safe — one failure can't abort the rest of the exit, and live presence still
+  // clears immediately when online (otherwise the 90s TTL handles it).
+  const { warnings } = await finalizeVisitClassification({
+    visitId,
+    gpsPoints,
     features,
-    ai_classification: classification,
-    ai_confidence: confidence,
-  }))) warnings.push('trajectory');
-
-  if (!(await saveClassificationSafe({ visitId, classification, confidence })))
-    warnings.push('classification');
+    classification,
+    confidence,
+  });
 
   if (!(await clearPresenceSafe(driverId))) warnings.push('presence');
 
