@@ -179,7 +179,9 @@ async function handleExit(zoneId) {
   const visitId = activeVisits.get(zoneId) ?? null;
   activeVisits.delete(zoneId);
 
-  const { gpsPoints, features } = await stopRecording({ persist: false });
+  // stopRecording is synchronous and never writes — persistence happens once in
+  // processZoneExit below. We just collect the buffered points + features here.
+  const { gpsPoints, features } = stopRecording();
 
   const dwellSeconds = entryTime
     ? Math.round((Date.now() - entryTime) / 1000)

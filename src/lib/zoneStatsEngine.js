@@ -53,6 +53,7 @@ export async function clearDriverPresence(driverId) {
     p_driver_id: driverId,
   });
   if (error) console.warn('[zoneStatsEngine] clearDriverPresence failed', error);
+  return { error };
 }
 
 // ── Legacy load event (still used to record zone_departures for flow calc) ───
@@ -61,6 +62,7 @@ export async function recordLoadEvent(zoneId) {
     p_zone_id: zoneId,
   });
   if (error) console.warn('[zoneStatsEngine] record_load_event failed', error);
+  return { error };
 }
 
 // ── Driver queue position ─────────────────────────────────────────────────────

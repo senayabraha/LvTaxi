@@ -79,3 +79,46 @@ only) a line like:
 
 This makes the invariant visible: GPS reads ≫ presence writes ≥ trajectory
 flushes.
+
+## Phase 2.1 — offline retry hardening
+
+Phase 2.1 hardens recovery of the existing per-visit writes **without** adding
+any new high-frequency write path.
+
+- **Retry on reconnect, not just launch.** `src/lib/offlineRetryManager.js`
+  subscribes to NetInfo and, on an offline→online transition, schedules a single
+  **debounced** (2s) retry pass. A `retryInFlight` guard prevents overlapping
+  drains, so flapping connectivity cannot spam Supabase. It is started in
+  `App.jsx` for the authenticated app and also drains queues on startup-online
+  (preserving the launch-retry behaviour).
+- **Trajectory persistence is separate from post-visit side effects.** Raw GPS
+  arrays live only in the pending-**trajectory** queue
+  (`lvtaxi:pending:trajectories:v1`). The post-visit side effects live in a
+  separate, compact queue (`lvtaxi:pending:visit_side_effects:v1`) that never
+  stores GPS arrays.
+- **Queued side effects** (`offlineCache`, bounded to 50, de-duped by a stable
+  `id`):
+  - `SAVE_CLASSIFICATION` — re-applies `zone_visits.classification` /
+    `confidence_score` and `trajectories.ai_classification` / `ai_confidence`.
+  - `RECORD_LOAD_EVENT` — replays `record_load_event(zoneId)` for flow calc.
+  - `UPSERT_DRIVER_HISTORY` — replays the `driver_zone_history` upsert deltas.
+- **Safe per-write wrappers** in `visitProcessor` (`persistTrajectorySafe`,
+  `saveClassificationSafe`, `recordLoadEventSafe`, `upsertHistorySafe`,
+  `clearPresenceSafe`) mean one failed side effect never aborts the rest of the
+  exit and never crashes the app.
+- **Presence clear is NOT queued.** A stale queued clear could later drop a
+  driver who has since re-staged, so if the immediate clear fails we rely on the
+  90-second presence TTL to expire the row instead.
+- **Replay is bounded and polite.** `retryPendingTrajectories()` and
+  `retryPendingVisitSideEffects()` process in queued order and **stop at the
+  first still-failing write** to avoid hammering an offline backend; successful
+  items are dequeued. Dev-only depth/result logging lives in
+  `src/lib/offlineQueueDiagnostics.js`.
+- **Recorder async cleanup.** `trajectoryRecorder.startRecording()` now resets
+  state **synchronously** (`resetRecordingState`) instead of calling an
+  unawaited async `stopRecording()`. `stopRecording()` is synchronous and never
+  writes; the old `persist:true` fallback insert was removed so there is no
+  duplicate-write or unawaited-persistence risk.
+
+No new per-point writes were introduced, the ~25s presence heartbeat is
+unchanged, and the future Redis/WebSocket/MQTT hot path remains separate.

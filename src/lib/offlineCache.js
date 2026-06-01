@@ -4,12 +4,15 @@ const KEY_ZONES = 'lvtaxi:cache:zones:v1';
 const KEY_STATS = 'lvtaxi:cache:zone_stats:v1';
 const KEY_STATS_AT = 'lvtaxi:cache:zone_stats:updated_at:v1';
 const KEY_PENDING_TRAJECTORIES = 'lvtaxi:pending:trajectories:v1';
+const KEY_PENDING_SIDE_EFFECTS = 'lvtaxi:pending:visit_side_effects:v1';
 
 // Bounds so a long offline stretch can never bloat AsyncStorage:
 //   - keep at most the most recent N pending visit saves
 //   - cap points-per-save so one giant trajectory can't dominate storage
 const MAX_PENDING_TRAJECTORIES = 20;
 const MAX_POINTS_PER_PENDING = 300;
+// Post-visit side effects are tiny (no GPS arrays), so we can keep more of them.
+const MAX_PENDING_SIDE_EFFECTS = 50;
 
 export async function saveZonesCache(zones) {
   try {
@@ -120,5 +123,89 @@ export async function clearPendingTrajectory(visitId) {
     );
   } catch (err) {
     console.warn('[offlineCache] clearPendingTrajectory failed', err);
+  }
+}
+
+// ── Pending post-visit side effects (offline resilience) ──────────────────────
+// Compact, replayable records for the non-trajectory writes that happen after a
+// visit (classification, load event, driver history). These are tiny — they must
+// NEVER carry raw GPS arrays (those live only in the pending-trajectory queue).
+// De-duped by a stable `id` and bounded to MAX_PENDING_SIDE_EFFECTS.
+
+export async function loadPendingVisitSideEffects() {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_PENDING_SIDE_EFFECTS);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+export async function savePendingVisitSideEffect(record) {
+  if (!record || !record.id || !record.type) return;
+  return savePendingVisitSideEffects([record]);
+}
+
+// Batch insert/replace. Each record is de-duped by id (latest wins) and the
+// queue is trimmed to the most recent MAX_PENDING_SIDE_EFFECTS entries.
+export async function savePendingVisitSideEffects(records) {
+  if (!Array.isArray(records) || records.length === 0) return;
+  try {
+    const list = await loadPendingVisitSideEffects();
+    const byId = new Map(list.map((r) => [r.id, r]));
+    for (const record of records) {
+      if (!record || !record.id || !record.type) continue;
+      const prev = byId.get(record.id);
+      byId.set(record.id, {
+        id: record.id,
+        type: record.type,
+        visit_id: record.visit_id ?? null,
+        driver_id: record.driver_id ?? null,
+        zone_id: record.zone_id ?? null,
+        // payload must stay compact — no GPS point arrays here.
+        payload: record.payload ?? null,
+        queued_at: prev?.queued_at ?? Date.now(),
+        attempts: prev?.attempts ?? 0,
+      });
+    }
+    const bounded = Array.from(byId.values()).slice(-MAX_PENDING_SIDE_EFFECTS);
+    await AsyncStorage.setItem(
+      KEY_PENDING_SIDE_EFFECTS,
+      JSON.stringify(bounded)
+    );
+  } catch (err) {
+    console.warn('[offlineCache] savePendingVisitSideEffect failed', err);
+  }
+}
+
+export async function clearPendingVisitSideEffect(id) {
+  try {
+    const list = await loadPendingVisitSideEffects();
+    const filtered = list.filter((r) => r.id !== id);
+    await AsyncStorage.setItem(
+      KEY_PENDING_SIDE_EFFECTS,
+      JSON.stringify(filtered)
+    );
+  } catch (err) {
+    console.warn('[offlineCache] clearPendingVisitSideEffect failed', err);
+  }
+}
+
+// Bump the attempt counter for a record that failed to replay (kept bounded).
+export async function bumpVisitSideEffectAttempt(id) {
+  try {
+    const list = await loadPendingVisitSideEffects();
+    let changed = false;
+    const next = list.map((r) => {
+      if (r.id !== id) return r;
+      changed = true;
+      return { ...r, attempts: (r.attempts ?? 0) + 1 };
+    });
+    if (changed) {
+      await AsyncStorage.setItem(KEY_PENDING_SIDE_EFFECTS, JSON.stringify(next));
+    }
+  } catch (err) {
+    console.warn('[offlineCache] bumpVisitSideEffectAttempt failed', err);
   }
 }

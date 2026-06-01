@@ -11,7 +11,10 @@ import { Text } from 'react-native';
 import { store } from './src/store';
 import { setupSessionListener } from './src/lib/sessionManager';
 import { startTierManager, stopTierManager } from './src/lib/tierManager';
-import { retryPendingTrajectories } from './src/lib/visitProcessor';
+import {
+  startOfflineRetryManager,
+  stopOfflineRetryManager,
+} from './src/lib/offlineRetryManager';
 import SplashScreen from './src/screens/SplashScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import NameScreen from './src/screens/NameScreen';
@@ -121,15 +124,16 @@ function Root() {
       startTierManager().catch((err) =>
         console.warn('[App] startTierManager failed', err)
       );
-      // Flush any trajectory saves that were queued offline on a previous run.
-      retryPendingTrajectories().catch((err) =>
-        console.warn('[App] retryPendingTrajectories failed', err)
-      );
+      // Drains pending trajectory + side-effect queues on launch (startup-online)
+      // AND on any later offline→online reconnect, without an app restart.
+      startOfflineRetryManager();
     } else {
       stopTierManager().catch((err) =>
         console.warn('[App] stopTierManager failed', err)
       );
+      stopOfflineRetryManager();
     }
+    return () => stopOfflineRetryManager();
   }, [session, profile]);
 
   if (isLoading) return <SplashScreen />;

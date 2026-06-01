@@ -92,3 +92,75 @@ per-point Supabase writes**.
 - [ ] Buffer is bounded; long visits do not crash.
 - [ ] Offline visits are retried or clearly logged.
 - [ ] Driver UI stays simple; freshness + offline/delayed state are visible.
+
+---
+
+## Phase 2.1 — offline retry hardening
+
+Dev-only observability for these tests comes from `[offlineRetry] …` logs
+(`offlineRetryManager` → `offlineQueueDiagnostics`) and `[locationWritePolicy] …`.
+
+### 2.1.1 Reconnect retry (no restart)
+
+- [ ] Start a visit online.
+- [ ] Disable the network (airplane mode).
+- [ ] Exit the zone so the trajectory save fails and queues
+      (`trajectory persist failed, queuing`).
+- [ ] Re-enable the network **without restarting the app**.
+- [ ] Confirm within a couple seconds a `[offlineRetry] reason=reconnect …` line
+      appears and `pendingTrajectories` drops to 0.
+
+### 2.1.2 Launch retry still works
+
+- [ ] Queue a pending trajectory (exit offline).
+- [ ] Kill the app completely.
+- [ ] Relaunch while online.
+- [ ] Confirm `[offlineRetry] reason=startup-online …` runs and the queue clears.
+
+### 2.1.3 Classification side-effect queue
+
+- [ ] Force a Supabase failure during `saveClassificationSafe` (offline at exit).
+- [ ] Confirm a `SAVE_CLASSIFICATION` side effect is queued
+      (`pendingSideEffects` > 0).
+- [ ] Restore the network.
+- [ ] Confirm retry re-applies `zone_visits.classification` /
+      `trajectories.ai_classification` and the side effect is removed.
+
+### 2.1.4 Load-event side-effect queue
+
+- [ ] Force a failure during `recordLoadEventSafe` for a staging visit.
+- [ ] Confirm a `RECORD_LOAD_EVENT` side effect is queued.
+- [ ] Restore the network.
+- [ ] Confirm retry records the departure/load event and clears the queue.
+
+### 2.1.5 Driver history queue
+
+- [ ] Force a failure during the `driver_zone_history` upsert.
+- [ ] Confirm an `UPSERT_DRIVER_HISTORY` side effect is queued.
+- [ ] Restore the network.
+- [ ] Confirm retry updates `driver_zone_history` and clears the queue.
+
+### 2.1.6 No high-frequency writes
+
+- [ ] Run the app in HIGH mode for 2 minutes.
+- [ ] Confirm GPS fixes are frequent, presence writes stay ~every 25s, and
+      trajectory writes are still once per visit.
+- [ ] Confirm side-effect retries happen only on launch / reconnect / failure —
+      never on every GPS fix.
+
+### 2.1.7 Recording async cleanup
+
+- [ ] Enter one zone, then quickly enter another (or rapidly restart recording).
+- [ ] Confirm no stale buffer leaks across visits and exactly one trajectory row
+      is written per visit (no duplicate write).
+
+### Phase 2.1 acceptance
+
+- [ ] Pending trajectories retry on reconnect without an app restart.
+- [ ] Failed classification / load-event / history writes queue and replay.
+- [ ] Queues are bounded (≤20 trajectories, ≤50 side effects) and side-effect
+      records carry no GPS arrays.
+- [ ] Retries stop early on continued failure (no Supabase hammering).
+- [ ] Presence still clears immediately when possible; otherwise the 90s TTL
+      handles it.
+- [ ] Driver-facing UI is unchanged and exposes no queue internals.

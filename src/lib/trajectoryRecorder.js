@@ -4,10 +4,8 @@
 // zone exit, which persists them as a single row (one visit = one write). The
 // buffer is bounded by TRAJECTORY_MAX_BUFFER_POINTS so a long visit can never
 // grow it without limit.
-import { supabase } from './supabase';
 import { onSmoothedLocation, getDistanceMeters } from './locationEngine';
 import { TRAJECTORY_MAX_BUFFER_POINTS } from './constants';
-import { recordTrajectoryFlush } from './locationWritePolicy';
 
 const STATIONARY_SPEED_MPS = 0.5;
 const STOP_GAP_MS = 3000;
@@ -55,19 +53,10 @@ export function appendTrajectoryPoint(point) {
   enforceBufferLimit();
 }
 
-export function startRecording(visitId, zoneCenter = null) {
-  stopRecording();
-  activeVisitId = visitId;
-  activeZoneCenter = zoneCenter;
-  points = [];
-  lastSampledAt = 0;
-
-  unsubscribe = onSmoothedLocation((point) => {
-    appendTrajectoryPoint(point);
-  });
-}
-
-export async function stopRecording({ persist = true } = {}) {
+// Synchronous teardown of the in-memory recording state. Unsubscribes from the
+// location stream and clears the buffer WITHOUT any async/Supabase work, so it
+// is safe to call from startRecording without awaiting.
+function resetRecordingState() {
   if (unsubscribe) {
     unsubscribe();
     unsubscribe = null;
@@ -76,33 +65,34 @@ export async function stopRecording({ persist = true } = {}) {
     clearInterval(sampleTimer);
     sampleTimer = null;
   }
-
-  const visitId = activeVisitId;
-  const collected = points.slice();
-  const features = extractFeatures(collected, activeZoneCenter);
-
-  // NOTE: geofenceEngine calls stopRecording({ persist: false }) — the actual
-  // persistence happens once in visitProcessor.processZoneExit (one upsert per
-  // visit). This persist:true branch is a standalone fallback for callers that
-  // want the recorder to save directly; it is still ONE write per visit, never
-  // one write per point.
-  if (persist && visitId && collected.length > 0) {
-    const { error } = await supabase.from('trajectories').insert({
-      visit_id: visitId,
-      gps_points: collected,
-      features,
-    });
-    if (error) {
-      console.warn('[trajectoryRecorder] failed to save trajectory', error);
-    } else {
-      recordTrajectoryFlush();
-    }
-  }
-
   activeVisitId = null;
   activeZoneCenter = null;
   points = [];
   lastSampledAt = 0;
+}
+
+export function startRecording(visitId, zoneCenter = null) {
+  // Reset synchronously so a quick zone→zone transition can't race a half-torn-
+  // down recorder (previously stopRecording() was async and left unawaited).
+  resetRecordingState();
+  activeVisitId = visitId;
+  activeZoneCenter = zoneCenter;
+
+  unsubscribe = onSmoothedLocation((point) => {
+    appendTrajectoryPoint(point);
+  });
+}
+
+// Stop recording and hand the buffered points back to the caller. This NEVER
+// writes to Supabase — persistence is owned by visitProcessor.processZoneExit
+// (one upsert per visit). The `persist` option is retained only for call-site
+// back-compat and is intentionally a no-op; passing it does not create a write.
+export function stopRecording(_opts = {}) {
+  const visitId = activeVisitId;
+  const collected = points.slice();
+  const features = extractFeatures(collected, activeZoneCenter);
+
+  resetRecordingState();
 
   return { visitId, gpsPoints: collected, features };
 }
