@@ -8,7 +8,11 @@ import ImStagingButton from '../components/ImStagingButton';
 import ZoneListItem, { ZONE_ITEM_HEIGHT } from '../components/ZoneListItem';
 import ConnectionBanner from '../components/ConnectionBanner';
 import { useZones } from '../hooks/useZones';
-import { DRIVER_STATUS, SORT_OPTIONS } from '../lib/constants';
+import {
+  DRIVER_STATUS,
+  SORT_OPTIONS,
+  isActiveParticipationStatus,
+} from '../lib/constants';
 import { getDistanceMeters } from '../lib/locationEngine';
 import {
   startGeofenceManager,
@@ -65,9 +69,12 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
-    // Geofencing always runs (off-duty drivers are still counted).
+    // Geofencing always runs as a cheap OS wake-up layer; the polygon checks in
+    // the background tasks remain the source of truth for participation.
     startGeofenceManager();
-    if (status !== DRIVER_STATUS.OFF_DUTY) {
+    // Zone notifications only matter while participating (inside / leaving the
+    // work area). Passive and tracking-disabled drivers get no zone alerts.
+    if (isActiveParticipationStatus(status)) {
       startNotificationEngine();
     } else {
       stopNotificationEngine();

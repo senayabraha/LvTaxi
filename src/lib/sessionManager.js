@@ -1,5 +1,6 @@
 import * as Linking from 'expo-linking';
 import * as Sentry from '@sentry/react-native';
+import { store } from '../store';
 import { supabase } from './supabase';
 import {
   setSession,
@@ -11,6 +12,8 @@ import {
 import { setProfile, clearProfile } from '../store/driversSlice';
 import { stopLocationTracking } from './locationEngine';
 import { stopGeofenceManager } from './geofenceEngine';
+import { stopAllBackgroundTracking } from './backgroundTracking/backgroundTrackingService';
+import { clearDriverPresence } from './zoneStatsEngine';
 import { closeOrphanedVisits } from './visitReconciler';
 
 let hasReconciled = false;
@@ -124,6 +127,17 @@ export function setupSessionListener(dispatch) {
 }
 
 export async function signOut(dispatch) {
+  // Logout is a TRACKING_DISABLED trigger: stop every background task and drop the
+  // driver out of live presence counts before the session goes away.
+  const userId = store.getState().auth.session?.user?.id ?? null;
+  if (userId) {
+    try {
+      await clearDriverPresence(userId);
+    } catch {}
+  }
+  try {
+    await stopAllBackgroundTracking();
+  } catch {}
   try {
     await stopGeofenceManager();
   } catch {}

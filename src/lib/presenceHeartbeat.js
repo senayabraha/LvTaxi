@@ -11,6 +11,7 @@ import { store } from '../store';
 import {
   DRIVER_STATUS,
   PRESENCE_HEARTBEAT_INTERVAL_MS,
+  isHeartbeatStatus,
 } from './constants';
 import { upsertDriverPresence } from './zoneStatsEngine';
 import { recordPresenceWrite } from './locationWritePolicy';
@@ -39,8 +40,10 @@ export async function maybeSendPresenceHeartbeat({
   if (!driverId) return false;
   // A presence row without coordinates is useless for live counts.
   if (lat == null || lng == null) return false;
-  // Off-duty drivers must not heartbeat — going off duty clears presence instead.
-  if (store.getState().drivers.status === DRIVER_STATUS.OFF_DUTY) return false;
+  // Only ACTIVE / STAGED drivers heartbeat. PASSIVE_FAR / PASSIVE_NEAR /
+  // EXIT_GRACE / TRACKING_DISABLED (and legacy OFF_DUTY) must NOT write presence
+  // — passive drivers are not participating and EXIT_GRACE is cleared instead.
+  if (!isHeartbeatStatus(store.getState().drivers.status)) return false;
 
   const now = Date.now();
   if (!force && now - lastHeartbeatAt < PRESENCE_HEARTBEAT_INTERVAL_MS) {
@@ -87,7 +90,8 @@ export function presenceHeartbeatFromLocation(point) {
   const state = store.getState();
   const driverId = state.auth.session?.user?.id ?? null;
   if (!driverId) return;
-  if (state.drivers.status === DRIVER_STATUS.OFF_DUTY) return;
+  // Skip passive / exit-grace / disabled — see maybeSendPresenceHeartbeat.
+  if (!isHeartbeatStatus(state.drivers.status)) return;
 
   const zoneId = state.drivers.currentZoneId ?? null;
   const classification = classificationForState(state);

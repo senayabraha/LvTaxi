@@ -5,9 +5,14 @@ import { DRIVER_STATUS } from '../lib/constants';
 import { TIER_CONFIG, TIER } from '../lib/tierManager';
 
 const STATUS_LABEL = {
-  [DRIVER_STATUS.OFF_DUTY]: { icon: '🔴', text: 'Off Duty', tone: 'muted' },
-  [DRIVER_STATUS.ACTIVE]:   { icon: '🟢', text: 'Active',   tone: 'text' },
-  [DRIVER_STATUS.STAGED]:   { icon: '🟡', text: 'Staging',  tone: 'accent' },
+  [DRIVER_STATUS.PASSIVE_FAR]:       { icon: '⚪', text: 'Passive (far)',   tone: 'muted' },
+  [DRIVER_STATUS.PASSIVE_NEAR]:      { icon: '🔵', text: 'Passive (near)',  tone: 'muted' },
+  [DRIVER_STATUS.ACTIVE]:            { icon: '🟢', text: 'Active',          tone: 'text' },
+  [DRIVER_STATUS.STAGED]:            { icon: '🟡', text: 'Staging',         tone: 'accent' },
+  [DRIVER_STATUS.EXIT_GRACE]:        { icon: '🟠', text: 'Leaving area',    tone: 'text' },
+  [DRIVER_STATUS.TRACKING_DISABLED]: { icon: '🔴', text: 'Tracking off',    tone: 'muted' },
+  // Legacy fallback.
+  [DRIVER_STATUS.OFF_DUTY]:          { icon: '🔴', text: 'Off Duty',        tone: 'muted' },
 };
 
 export default function AutoStatusBar() {
@@ -22,7 +27,7 @@ export default function AutoStatusBar() {
     return z?.name ?? null;
   }, [currentZoneId, allZones]);
 
-  const meta = STATUS_LABEL[status] ?? STATUS_LABEL[DRIVER_STATUS.OFF_DUTY];
+  const meta = STATUS_LABEL[status] ?? STATUS_LABEL[DRIVER_STATUS.TRACKING_DISABLED];
   const showZone = status === DRIVER_STATUS.STAGED && zoneName;
   const tierLabel = TIER_CONFIG[gpsTier]?.label ?? '—';
 

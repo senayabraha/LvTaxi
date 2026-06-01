@@ -158,11 +158,85 @@ export const PRESENCE_TTL_MS = PRESENCE_TTL_SECONDS * 1000;
 export const PRESENCE_HEARTBEAT_INTERVAL_SECONDS = 25;
 export const PRESENCE_HEARTBEAT_INTERVAL_MS = PRESENCE_HEARTBEAT_INTERVAL_SECONDS * 1000;
 
+// ── Automatic background-tracking driver states ──────────────────────────────
+// These are the source of truth for the automatic LV Taxi tracking architecture.
+// The driver no longer taps "Start/End Shift": the app moves between these states
+// purely from GPS position relative to the work-area and staging-zone polygons.
+//
+//   passive_far       — outside work area, far from boundary; ~20-min GPS, no heartbeat.
+//   passive_near      — outside work area, near boundary; ~5-min GPS, no heartbeat.
+//   active            — inside work-area polygon; active GPS + ~25s heartbeat (no zone).
+//   staged            — inside a staging-zone polygon; heartbeat carries zone_id (counted).
+//   exit_grace        — just left work area; 30-min grace, NOT counted, light GPS.
+//   tracking_disabled — logout / revoked permission / inactive account / user-disabled.
+//
+// Legacy values (off_duty) are retained ONLY for backward compatibility with
+// older driver rows and any UI that still references them.
 export const DRIVER_STATUS = {
+  PASSIVE_FAR: 'passive_far',
+  PASSIVE_NEAR: 'passive_near',
   ACTIVE: 'active',
   STAGED: 'staged',
+  EXIT_GRACE: 'exit_grace',
+  TRACKING_DISABLED: 'tracking_disabled',
+  // Legacy — do not use in new flows.
   OFF_DUTY: 'off_duty',
 };
+
+// ── Automatic-tracking timing ────────────────────────────────────────────────
+// GPS sampling cadence per state. These bound how often the phone READS a fix in
+// the background task — they are NOT backend-write intervals (presence is still
+// throttled by PRESENCE_HEARTBEAT_INTERVAL_MS below).
+export const PASSIVE_FAR_INTERVAL_MS = 20 * 60 * 1000;   // far outside work area
+export const PASSIVE_NEAR_INTERVAL_MS = 5 * 60 * 1000;   // near the work-area boundary
+export const ACTIVE_LOCATION_INTERVAL_MS = 5000;         // inside work area / staged
+export const EXIT_GRACE_LOCATION_INTERVAL_MS = 60 * 1000; // light checks during grace
+
+// How long a driver may stay outside the work-area polygon before we clear their
+// presence and drop them back to passive tracking. Re-entering the polygon within
+// this window returns them straight to ACTIVE.
+export const WORK_AREA_EXIT_GRACE_MS = 30 * 60 * 1000;
+
+// Distance (to the work-area polygon boundary) under which an outside driver is
+// classified PASSIVE_NEAR instead of PASSIVE_FAR. The work-area polygon — never a
+// native circle — is the source of truth; this only tunes the passive GPS cadence.
+export const PASSIVE_NEAR_THRESHOLD_METERS = 3000;
+
+// ── Driver-state predicates ──────────────────────────────────────────────────
+// Centralised so UI, heartbeat, and background tasks all agree on what each
+// automatic state means. Polygon position is the source of truth for the state;
+// these only interpret it.
+
+// Passive = outside the work area. Passive drivers are NEVER counted in zone math
+// and NEVER write a driver_presence heartbeat.
+export function isPassiveStatus(status) {
+  return (
+    status === DRIVER_STATUS.PASSIVE_FAR ||
+    status === DRIVER_STATUS.PASSIVE_NEAR
+  );
+}
+
+// Only ACTIVE / STAGED drivers refresh driver_presence. PASSIVE / EXIT_GRACE /
+// TRACKING_DISABLED (and legacy OFF_DUTY) must not heartbeat.
+export function isHeartbeatStatus(status) {
+  return status === DRIVER_STATUS.ACTIVE || status === DRIVER_STATUS.STAGED;
+}
+
+// States where the active background location task should be running (driver is
+// inside, or recently left, the work area).
+export function isActiveParticipationStatus(status) {
+  return (
+    status === DRIVER_STATUS.ACTIVE ||
+    status === DRIVER_STATUS.STAGED ||
+    status === DRIVER_STATUS.EXIT_GRACE
+  );
+}
+
+// Only STAGED drivers with a fresh heartbeat count toward a specific staging
+// queue. ACTIVE (null zone), EXIT_GRACE and PASSIVE must never count.
+export function countsInStagingMath(status) {
+  return status === DRIVER_STATUS.STAGED;
+}
 
 export const SORT_OPTIONS = {
   NEAREST: 'nearest',

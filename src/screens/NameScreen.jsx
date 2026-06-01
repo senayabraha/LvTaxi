@@ -38,7 +38,10 @@ export default function NameScreen({ navigation }) {
       phone: userPhone,
       email: userEmail,
       role: 'driver',
-      status: DRIVER_STATUS.OFF_DUTY,
+      // New drivers start with tracking disabled; app-launch reconciliation moves
+      // them into passive/active automatically once permission + position resolve.
+      status: DRIVER_STATUS.TRACKING_DISABLED,
+      tracking_enabled: true,
       subscription_tier: 'free',
     };
     const { data, error: err } = await supabase

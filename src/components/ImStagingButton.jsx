@@ -20,7 +20,12 @@ export default function ImStagingButton() {
   const [confirmZone, setConfirmZone] = useState(null);
   const [pickerZones, setPickerZones] = useState(null);
 
-  const disabled = status === DRIVER_STATUS.OFF_DUTY || busy;
+  // Staging is only meaningful while the driver is participating inside the work
+  // area (ACTIVE or already STAGED). Passive / exit-grace / disabled drivers can't
+  // manually stage.
+  const canStage =
+    status === DRIVER_STATUS.ACTIVE || status === DRIVER_STATUS.STAGED;
+  const disabled = !canStage || busy;
 
   const stageAt = useCallback(
     async (zone) => {

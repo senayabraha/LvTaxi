@@ -8,9 +8,19 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Text } from 'react-native';
 
+// Background TaskManager tasks MUST be registered at top-level module scope,
+// before the OS can deliver a background execution. Importing these modules runs
+// their TaskManager.defineTask(...) calls. Do not move these below component code.
+import './src/lib/backgroundTracking/passiveLocationTask';
+import './src/lib/backgroundTracking/activeLocationTask';
+
 import { store } from './src/store';
 import { setupSessionListener } from './src/lib/sessionManager';
 import { startTierManager, stopTierManager } from './src/lib/tierManager';
+import {
+  reconcileTrackingOnAppLaunch,
+  stopAllBackgroundTracking,
+} from './src/lib/backgroundTracking/backgroundTrackingService';
 import {
   startOfflineRetryManager,
   stopOfflineRetryManager,
@@ -124,12 +134,21 @@ function Root() {
       startTierManager().catch((err) =>
         console.warn('[App] startTierManager failed', err)
       );
+      // Automatic background tracking: no "Start Shift" tap. Reconciliation reads
+      // permission + tracking_enabled + persisted status + GPS position and starts
+      // the correct passive/active background task on its own.
+      reconcileTrackingOnAppLaunch().catch((err) =>
+        console.warn('[App] reconcileTrackingOnAppLaunch failed', err)
+      );
       // Drains pending trajectory + side-effect queues on launch (startup-online)
       // AND on any later offline→online reconnect, without an app restart.
       startOfflineRetryManager();
     } else {
       stopTierManager().catch((err) =>
         console.warn('[App] stopTierManager failed', err)
+      );
+      stopAllBackgroundTracking().catch((err) =>
+        console.warn('[App] stopAllBackgroundTracking failed', err)
       );
       stopOfflineRetryManager();
     }
