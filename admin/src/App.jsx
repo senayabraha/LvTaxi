@@ -92,7 +92,20 @@ export default function App() {
   }, []);
 
   async function signOut() {
-    await supabase.auth.signOut();
+    // Use a local-scope sign out so the stored session is cleared even if the
+    // server revoke request fails (offline / expired token). Relying only on
+    // the SIGNED_OUT event left the dashboard stuck signed-in when that call
+    // threw, so we also reset local state in finally as a guaranteed fallback.
+    try {
+      const { error: err } = await supabase.auth.signOut({ scope: 'local' });
+      if (err) console.warn('[admin] sign out error:', err.message);
+    } catch (e) {
+      console.warn('[admin] sign out failed:', e?.message || e);
+    } finally {
+      setSession(null);
+      setIsAdmin(false);
+      setError(null);
+    }
   }
 
   if (!ENV_VALID) {
