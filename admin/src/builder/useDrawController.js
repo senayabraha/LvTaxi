@@ -103,44 +103,79 @@ export function useDrawController({ map, onFeature }) {
     [map, onFeature]
   );
 
+  // Creates a draggable vertex marker wired to drag (move) and contextmenu
+  // (delete) handlers. Shared by hand-drawing and GeoJSON import.
+  const createMarker = useCallback(
+    (id, lat, lng) => {
+      if (!map) return null;
+      const mk = L.marker([lat, lng], {
+        icon: vertexIcon(),
+        draggable: true,
+      }).addTo(map);
+      mk.on('drag', (e) => {
+        const ll = e.target.getLatLng();
+        setPoints((cur) => {
+          const updated = cur.map((p) =>
+            p.id === id ? { ...p, lat: ll.lat, lng: ll.lng } : p
+          );
+          redrawPolyline(updated, modeRef.current);
+          rebuildFence(updated, modeRef.current, bufferRef.current);
+          return updated;
+        });
+      });
+      mk.on('contextmenu', () => {
+        setPoints((cur) => {
+          const remaining = cur.filter((p) => p.id !== id);
+          map.removeLayer(mk);
+          markersRef.current = markersRef.current.filter((x) => x !== mk);
+          redrawPolyline(remaining, modeRef.current);
+          rebuildFence(remaining, modeRef.current, bufferRef.current);
+          return remaining;
+        });
+      });
+      markersRef.current.push(mk);
+      return mk;
+    },
+    [map, redrawPolyline, rebuildFence]
+  );
+
   const addVertex = useCallback(
     (lat, lng) => {
       if (!map) return;
       setPoints((arr) => {
         const id = arr.length === 0 ? 1 : Math.max(...arr.map((p) => p.id)) + 1;
         const next = [...arr, { id, lat, lng }];
-        const mk = L.marker([lat, lng], {
-          icon: vertexIcon(),
-          draggable: true,
-        }).addTo(map);
-        mk.on('drag', (e) => {
-          const ll = e.target.getLatLng();
-          setPoints((cur) => {
-            const updated = cur.map((p) =>
-              p.id === id ? { ...p, lat: ll.lat, lng: ll.lng } : p
-            );
-            redrawPolyline(updated, modeRef.current);
-            rebuildFence(updated, modeRef.current, bufferRef.current);
-            return updated;
-          });
-        });
-        mk.on('contextmenu', () => {
-          setPoints((cur) => {
-            const remaining = cur.filter((p) => p.id !== id);
-            map.removeLayer(mk);
-            markersRef.current = markersRef.current.filter((x) => x !== mk);
-            redrawPolyline(remaining, modeRef.current);
-            rebuildFence(remaining, modeRef.current, bufferRef.current);
-            return remaining;
-          });
-        });
-        markersRef.current.push(mk);
+        createMarker(id, lat, lng);
         redrawPolyline(next, modeRef.current);
         rebuildFence(next, modeRef.current, bufferRef.current);
         return next;
       });
     },
-    [map, redrawPolyline, rebuildFence]
+    [map, createMarker, redrawPolyline, rebuildFence]
+  );
+
+  // Replace all points at once (used by GeoJSON import). Reuses the same
+  // draggable markers + polyline/fence rebuild as hand-drawn vertices, so
+  // imported geometry is fully editable. `targetMode` optionally switches
+  // between path (OPEN) and closed polygon (CLOSED).
+  const importPoints = useCallback(
+    (coords, targetMode) => {
+      if (!map || !Array.isArray(coords) || coords.length === 0) return;
+      clearVisuals();
+      setError(null);
+      const pts = coords.map((c, i) => ({ id: i + 1, lat: c.lat, lng: c.lng }));
+      const m = targetMode ?? modeRef.current;
+      if (targetMode) {
+        setMode(targetMode);
+        modeRef.current = targetMode;
+      }
+      pts.forEach((p) => createMarker(p.id, p.lat, p.lng));
+      pointsRef.current = pts;
+      setPoints(pts);
+      redrawPolyline(pts, m);
+      rebuildFence(pts, m, bufferRef.current);
+    },
+    [map, clearVisuals, createMarker, redrawPolyline, rebuildFence]
   );
 
   const deletePointByIndex = useCallback(
@@ -197,5 +232,6 @@ export function useDrawController({ map, onFeature }) {
     setBufferM,
     clearAll,
     deletePointByIndex,
+    importPoints,
   };
 }

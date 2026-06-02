@@ -360,6 +360,35 @@ function DrawRows({ ctrl, onShowPoints }) {
 // ──────────────────────────────────────────────
 // Wrapper
 // ──────────────────────────────────────────────
+// Import / Export GeoJSON row + imported-file status.
+function ImportExportRow({ onImport, onExport, canExport, imported, importError, onClearImport }) {
+  return (
+    <div className="space-y-2 border-b border-border pb-2">
+      <div className="flex gap-2">
+        <GhostBtn onClick={onImport}>📥 Import GeoJSON</GhostBtn>
+        <GhostBtn onClick={onExport} disabled={!canExport}>
+          📤 Export GeoJSON
+        </GhostBtn>
+      </div>
+      {importError ? <div className="text-bad text-xs">{importError}</div> : null}
+      {imported ? (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted truncate">
+            Imported: <span className="text-text">{imported.name}</span> ·{' '}
+            {imported.count} points
+          </span>
+          <button
+            onClick={onClearImport}
+            className="ml-auto text-bad text-xs px-2 py-1 rounded bg-bad/10 whitespace-nowrap"
+          >
+            Clear import
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function BottomToolbar({
   mode,
   trackCtrl,
@@ -367,6 +396,12 @@ export default function BottomToolbar({
   feature,
   onSaved,
   onShowPoints,
+  onImport,
+  onExport,
+  canExport,
+  imported,
+  importError,
+  onClearImport,
 }) {
   const inTrackReady =
     mode === 'track' && trackCtrl.phase === TRACK_PHASE.READY;
@@ -392,6 +427,15 @@ export default function BottomToolbar({
         className={`${open ? 'block' : 'hidden'} sm:block px-3 sm:px-4 pt-1 sm:pt-3 pb-3 sm:pb-4 space-y-2 sm:space-y-3 overflow-y-auto`}
         style={{ maxHeight: '45vh' }}
       >
+        <ImportExportRow
+          onImport={onImport}
+          onExport={onExport}
+          canExport={canExport}
+          imported={imported}
+          importError={importError}
+          onClearImport={onClearImport}
+        />
+
         {mode === 'track' ? (
           <TrackRows ctrl={trackCtrl} onShowPoints={onShowPoints} />
         ) : (

@@ -9,6 +9,13 @@ import {
   phaseOf,
 } from '../src/lib/zoneHealth.js';
 import { computeRestoreDiff } from '../src/lib/zoneVersionDiff.js';
+import {
+  parseGeoJson,
+  geoJsonToBuilderPoints,
+  builderPointsToGeoJson,
+  getGeoJsonBounds,
+  ERR,
+} from '../src/lib/geojsonBuilder.js';
 
 let failures = 0;
 let count = 0;
@@ -145,6 +152,91 @@ function snap(props) {
   const current = [{ id: 'z1', name: 'P', active: true, lat: 1, lng: 2, radius_meters: 100, drawn_polygon: null }];
   const d = computeRestoreDiff(snapshot, current);
   eq('polygon kind = set', d.toUpdate[0]?.changes?.drawn_polygon?.kind, 'set');
+}
+
+function throws(name, fn, expectedMsg) {
+  count += 1;
+  try {
+    fn();
+    failures += 1;
+    console.error(`  ✗ ${name} (did not throw)`);
+  } catch (e) {
+    if (expectedMsg && e.message !== expectedMsg) {
+      failures += 1;
+      console.error(`  ✗ ${name} (got "${e.message}")`);
+    } else {
+      console.log(`  ✓ ${name}`);
+    }
+  }
+}
+
+// ── geojsonBuilder: import ──────────────────────────────────────────────────
+console.log('geojsonBuilder import');
+{
+  const poly = {
+    type: 'Polygon',
+    coordinates: [[[-115.1, 36.1], [-115.0, 36.1], [-115.0, 36.2], [-115.1, 36.1]]],
+  };
+  const r = geoJsonToBuilderPoints(poly);
+  eq('polygon mode closed', r.mode, 'closed');
+  eq('polygon drops closing dup (3 pts)', r.points.length, 3);
+  eq('polygon lat from coord[1]', r.points[0].lat, 36.1);
+}
+{
+  const line = { type: 'LineString', coordinates: [[-115.1, 36.1], [-115.0, 36.2]] };
+  const r = geoJsonToBuilderPoints(line);
+  eq('linestring mode open', r.mode, 'open');
+  eq('linestring point count', r.points.length, 2);
+}
+{
+  const fc = {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1], [2, 2]] } },
+    ],
+  };
+  const parsed = parseGeoJson(JSON.stringify(fc));
+  const r = geoJsonToBuilderPoints(parsed);
+  eq('featurecollection point count', r.points.length, 3);
+}
+
+console.log('geojsonBuilder errors');
+throws('invalid JSON', () => parseGeoJson('{not json'), ERR.INVALID_JSON);
+throws('valid JSON but not GeoJSON', () => parseGeoJson('{"foo":1}'), ERR.NOT_GEOJSON);
+throws(
+  'unsupported geometry (Point)',
+  () => geoJsonToBuilderPoints({ type: 'Point', coordinates: [0, 0] }),
+  ERR.UNSUPPORTED
+);
+throws(
+  'empty coordinates',
+  () => geoJsonToBuilderPoints({ type: 'LineString', coordinates: [] }),
+  ERR.EMPTY
+);
+
+// ── geojsonBuilder: export ──────────────────────────────────────────────────
+console.log('geojsonBuilder export');
+{
+  const pts = [{ lat: 36.1, lng: -115.1 }, { lat: 36.1, lng: -115.0 }, { lat: 36.2, lng: -115.0 }];
+  const f = builderPointsToGeoJson(pts, { mode: 'closed', name: 'venetian' });
+  const ring = f.geometry.coordinates[0];
+  eq('export polygon geometry type', f.geometry.type, 'Polygon');
+  eq('export polygon ring closed', JSON.stringify(ring[0]), JSON.stringify(ring[ring.length - 1]));
+  eq('export polygon geometry_mode', f.properties.geometry_mode, 'polygon');
+  eq('export polygon keeps name', f.properties.name, 'venetian');
+  eq('export source builder', f.properties.source, 'builder');
+}
+{
+  const pts = [{ lat: 36.1, lng: -115.1 }, { lat: 36.2, lng: -115.0 }];
+  const f = builderPointsToGeoJson(pts, { mode: 'open', bufferMeters: 5 });
+  eq('export path geometry type', f.geometry.type, 'LineString');
+  eq('export path geometry_mode', f.properties.geometry_mode, 'path');
+  eq('export path buffer_meters', f.properties.buffer_meters, 5);
+}
+{
+  const b = getGeoJsonBounds([{ lat: 36.1, lng: -115.1 }, { lat: 36.3, lng: -115.0 }]);
+  eq('bounds south', b[0][0], 36.1);
+  eq('bounds east', b[1][1], -115.0);
 }
 
 console.log(`\n${count - failures}/${count} checks passed`);
