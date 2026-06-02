@@ -172,6 +172,22 @@ export const PRESENCE_HEARTBEAT_INTERVAL_MS = PRESENCE_HEARTBEAT_INTERVAL_SECOND
 //
 // Legacy values (off_duty) are retained ONLY for backward compatibility with
 // older driver rows and any UI that still references them.
+// ── Taxi companies ───────────────────────────────────────────────────────────
+// Selectable during onboarding and editable from the driver's profile. "Other"
+// reveals a free-text field; the saved value is the exact label, the trimmed
+// custom name, or null. This is private to the driver and LV Taxi admin.
+export const TAXI_COMPANY_OTHER = 'Other';
+export const TAXI_COMPANIES = [
+  'Taxi Management',
+  'zTrip',
+  'Desert Cab',
+  'Nellis Cab',
+  'Western Cab',
+  'Lucky Cab',
+  'Whittlesea Blue Cab',
+  TAXI_COMPANY_OTHER,
+];
+
 export const DRIVER_STATUS = {
   PASSIVE_FAR: 'passive_far',
   PASSIVE_NEAR: 'passive_near',
