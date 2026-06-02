@@ -7,6 +7,7 @@ import AutoStatusBar from '../components/AutoStatusBar';
 import ImStagingButton from '../components/ImStagingButton';
 import ZoneListItem, { ZONE_ITEM_HEIGHT } from '../components/ZoneListItem';
 import ConnectionBanner from '../components/ConnectionBanner';
+import ToastHost from '../components/Toast';
 import { useZones } from '../hooks/useZones';
 import {
   DRIVER_STATUS,
@@ -227,6 +228,7 @@ export default function HomeScreen() {
       />
 
       <ImStagingButton />
+      <ToastHost />
     </SafeAreaView>
   );
 }

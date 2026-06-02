@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, Pressable, Alert, Modal, FlatList } from 'react-native';
+import { View, Text, Pressable, Modal, FlatList } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { setStatus, zoneEntered } from '../store/driversSlice';
 import { DRIVER_STATUS } from '../lib/constants';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/locationEngine';
 import { maybeSendPresenceHeartbeat } from '../lib/presenceHeartbeat';
+import { showToast } from '../lib/toast';
 
 const NEAR_METERS = 200;
 
@@ -20,12 +21,8 @@ export default function ImStagingButton() {
   const [confirmZone, setConfirmZone] = useState(null);
   const [pickerZones, setPickerZones] = useState(null);
 
-  // Staging is only meaningful while the driver is participating inside the work
-  // area (ACTIVE or already STAGED). Passive / exit-grace / disabled drivers can't
-  // manually stage.
   const canStage =
     status === DRIVER_STATUS.ACTIVE || status === DRIVER_STATUS.STAGED;
-  const disabled = !canStage || busy;
 
   const stageAt = useCallback(
     async (zone) => {
@@ -34,8 +31,6 @@ export default function ImStagingButton() {
       try {
         dispatch(setStatus(DRIVER_STATUS.STAGED));
         dispatch(zoneEntered(zone.id));
-        // Force an immediate presence write so the live-count RPC picks this
-        // driver up right away (no legacy counter — counts come from presence).
         if (driverId) {
           await maybeSendPresenceHeartbeat({
             driverId,
@@ -54,19 +49,25 @@ export default function ImStagingButton() {
             .eq('id', driverId);
           if (error) console.warn('[ImStagingButton] update driver failed', error.message);
         }
+        showToast(`Staged at ${zone.name}`, 'success');
       } finally {
         setBusy(false);
         setConfirmZone(null);
         setPickerZones(null);
       }
     },
-    [dispatch, driverId]
+    [dispatch, driverId, currentLat, currentLng]
   );
 
   const onPress = useCallback(async () => {
-    if (disabled) return;
+    if (!canStage) {
+      showToast('Go online first to use staging', 'info');
+      return;
+    }
+    if (busy) return;
+
     if (currentLat == null || currentLng == null) {
-      Alert.alert('No GPS yet', 'Waiting for a location fix.');
+      showToast('Waiting for a GPS fix…', 'info');
       return;
     }
 
@@ -79,7 +80,7 @@ export default function ImStagingButton() {
     setBusy(false);
 
     if (error) {
-      Alert.alert('Could not load zones', error.message);
+      showToast('Could not load zones — try again', 'error');
       return;
     }
 
@@ -93,39 +94,45 @@ export default function ImStagingButton() {
       .sort((a, b) => a.distance - b.distance);
 
     if (withDistance.length === 0) {
-      Alert.alert('No staging zone nearby', 'Drive closer to a staging zone and try again.');
+      showToast('No staging zone nearby — drive closer', 'info');
       return;
     }
 
     setConfirmZone(withDistance[0]);
     setPickerZones(withDistance);
-  }, [disabled, currentLat, currentLng]);
+  }, [canStage, busy, currentLat, currentLng]);
 
   return (
     <>
-      <Pressable
-        onPress={onPress}
-        disabled={disabled}
+      <View
         style={{
           position: 'absolute',
           bottom: 80,
           right: 20,
-          backgroundColor: '#F5C518',
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          borderRadius: 24,
-          opacity: disabled ? 0.4 : 1,
-          shadowColor: '#000',
-          shadowOpacity: 0.3,
-          shadowRadius: 6,
-          shadowOffset: { width: 0, height: 3 },
-          elevation: 6,
+          zIndex: 10,
+          elevation: 10,
         }}
+        pointerEvents="box-none"
       >
-        <Text style={{ color: '#0B0F1A', fontWeight: '700' }}>
-          🟡 I’m Staging
-        </Text>
-      </Pressable>
+        <Pressable
+          onPress={onPress}
+          style={{
+            backgroundColor: canStage ? '#F5C518' : '#888',
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            borderRadius: 24,
+            opacity: busy ? 0.7 : 1,
+            shadowColor: '#000',
+            shadowOpacity: 0.3,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 3 },
+          }}
+        >
+          <Text style={{ color: canStage ? '#0B0F1A' : '#ddd', fontWeight: '700' }}>
+            🟡 I'm Staging
+          </Text>
+        </Pressable>
+      </View>
 
       {/* Confirm closest zone */}
       <Modal
@@ -150,7 +157,7 @@ export default function ImStagingButton() {
               Staging at {confirmZone?.name}?
             </Text>
             <Text className="text-muted text-sm mb-4">
-              We’ll mark you as staged here and start the wait timer.
+              We'll mark you as staged here and start the wait timer.
             </Text>
 
             <View className="flex-row justify-end gap-2">

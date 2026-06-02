@@ -7,6 +7,7 @@ import ZoneCircleModal from './ZoneCircleModal.jsx';
 import AddZoneModal from './AddZoneModal.jsx';
 import ZoneVersionsModal from './ZoneVersionsModal.jsx';
 import FilterBar from './components/FilterBar.jsx';
+import WorkAreaMapModal from './WorkAreaMapModal.jsx';
 import { updateZoneFields, deleteZone, regenerateSnapshot } from './lib/zoneStore.js';
 import { getWaitMinutes } from './lib/zoneHealth.js';
 import { useToast } from './useToast.jsx';
@@ -17,12 +18,13 @@ function WorkAreaSection() {
   const [workArea, setWorkArea] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('work_areas')
-      .select('id, name, created_at, active')
+      .select('id, name, created_at, active, polygon')
       .eq('active', true)
       .order('updated_at', { ascending: false })
       .limit(1);
@@ -115,50 +117,83 @@ function WorkAreaSection() {
 
   const buttonLabel = workArea ? 'Replace GeoJSON' : 'Upload Work Area GeoJSON';
 
+  function downloadGeoJSON() {
+    if (!workArea?.polygon) return;
+    const fc = { type: 'FeatureCollection', features: [workArea.polygon] };
+    const blob = new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${workArea.name ?? 'work_area'}.geojson`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <div className="px-3 sm:px-6 py-4 border-b border-border bg-panel/30">
-      <div className="flex items-start sm:items-center justify-between flex-wrap gap-3">
-        <div>
-          <div className="text-text font-semibold">Work Area Geofence</div>
-          {loading ? (
-            <div className="text-muted text-xs mt-1">Loading…</div>
-          ) : workArea ? (
-            <div className="text-muted text-xs mt-1 flex items-center gap-2">
-              <span className="text-text">{workArea.name}</span>
-              <span>·</span>
-              <span>
-                created {new Date(workArea.created_at).toLocaleDateString()}
-              </span>
-              <span className="bg-good/20 text-good px-2 py-0.5 rounded text-[10px] font-medium">
-                Active
-              </span>
-            </div>
-          ) : (
-            <div className="text-muted text-xs mt-1">No work area configured</div>
-          )}
-        </div>
-        <div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".geojson,.json,application/geo+json,application/json"
-            className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0])}
-          />
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className={`px-3 py-1.5 rounded text-xs font-semibold ${
-              uploading
-                ? 'bg-accent/60 text-bg'
-                : 'bg-accent text-bg hover:opacity-90'
-            }`}
-          >
-            {uploading ? 'Uploading…' : buttonLabel}
-          </button>
+    <>
+      <div className="px-3 sm:px-6 py-4 border-b border-border bg-panel/30">
+        <div className="flex items-start sm:items-center justify-between flex-wrap gap-3">
+          <div>
+            <div className="text-text font-semibold">Work Area Geofence</div>
+            {loading ? (
+              <div className="text-muted text-xs mt-1">Loading…</div>
+            ) : workArea ? (
+              <div className="text-muted text-xs mt-1 flex items-center gap-2">
+                <span className="text-text">{workArea.name}</span>
+                <span>·</span>
+                <span>
+                  created {new Date(workArea.created_at).toLocaleDateString()}
+                </span>
+                <span className="bg-good/20 text-good px-2 py-0.5 rounded text-[10px] font-medium">
+                  Active
+                </span>
+              </div>
+            ) : (
+              <div className="text-muted text-xs mt-1">No work area configured</div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {workArea?.polygon && (
+              <>
+                <button
+                  onClick={() => setShowMap(true)}
+                  className="px-3 py-1.5 rounded text-xs font-semibold bg-panel2 border border-border text-text hover:opacity-80"
+                >
+                  View Map
+                </button>
+                <button
+                  onClick={downloadGeoJSON}
+                  className="px-3 py-1.5 rounded text-xs font-semibold bg-panel2 border border-border text-text hover:opacity-80"
+                >
+                  Download GeoJSON
+                </button>
+              </>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".geojson,.json,application/geo+json,application/json"
+              className="hidden"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className={`px-3 py-1.5 rounded text-xs font-semibold ${
+                uploading
+                  ? 'bg-accent/60 text-bg'
+                  : 'bg-accent text-bg hover:opacity-90'
+              }`}
+            >
+              {uploading ? 'Uploading…' : buttonLabel}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+      {showMap && workArea?.polygon && (
+        <WorkAreaMapModal workArea={workArea} onClose={() => setShowMap(false)} />
+      )}
+    </>
   );
 }
 
