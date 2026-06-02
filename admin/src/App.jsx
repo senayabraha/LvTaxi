@@ -3,6 +3,32 @@ import { supabase } from './supabase.js';
 import LoginScreen from './LoginScreen.jsx';
 import MainTabs from './MainTabs.jsx';
 import { ToastProvider } from './useToast.jsx';
+import { ENV_VALID, getMissingEnv } from './lib/env.js';
+
+function EnvError() {
+  const missing = getMissingEnv();
+  return (
+    <div className="flex h-full items-center justify-center bg-bg p-4">
+      <div className="max-w-md text-center">
+        <div className="text-bad text-2xl font-bold mb-2">Configuration error</div>
+        <div className="text-muted mb-3">
+          The admin dashboard is missing required environment variables and
+          cannot connect to Supabase:
+        </div>
+        <ul className="text-bad text-sm font-mono mb-4">
+          {missing.map((m) => (
+            <li key={m}>{m}</li>
+          ))}
+        </ul>
+        <div className="text-muted text-sm">
+          Copy <code>admin/.env.example</code> to <code>admin/.env</code> and set
+          the Supabase URL and <strong>publishable</strong> key (never the
+          service role key), then restart the dev server.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -67,6 +93,14 @@ export default function App() {
 
   async function signOut() {
     await supabase.auth.signOut();
+  }
+
+  if (!ENV_VALID) {
+    return (
+      <ToastProvider>
+        <EnvError />
+      </ToastProvider>
+    );
   }
 
   return (

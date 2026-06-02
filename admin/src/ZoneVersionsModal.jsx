@@ -48,8 +48,9 @@ function RestorePreview({ version, diff, onCancel, onApplied }) {
   const [confirmText, setConfirmText] = useState('');
   const [applying, setApplying] = useState(false);
   const [failure, setFailure] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-  const canConfirm = confirmText === 'RESTORE' && !applying;
+  const canConfirm = confirmText === 'RESTORE' && !applying && !success;
 
   async function handleApply() {
     if (!canConfirm) return;
@@ -64,11 +65,12 @@ function RestorePreview({ version, diff, onCancel, onApplied }) {
         onApplied?.({ partial: true });
         return;
       }
+      setSuccess(res);
       toast(
         `Restored version #${version.version_number} — ${res.updated} updated, ${res.created} created`,
         'success'
       );
-      onApplied?.({ partial: false });
+      onApplied?.({ partial: false, keepOpen: true });
     } catch (err) {
       setFailure({ failed: { zone: '—', message: err.message ?? String(err) } });
       toast(err.message ?? 'Restore failed', 'error');
@@ -194,14 +196,38 @@ function RestorePreview({ version, diff, onCancel, onApplied }) {
           </div>
         ) : null}
 
+        {success ? (
+          <div className="bg-good/15 border border-good/40 text-good px-3 py-2 rounded text-sm">
+            <div className="font-semibold">
+              ✓ Restore complete — version #{version.version_number}
+            </div>
+            <ul className="text-good/90 text-xs mt-1 space-y-0.5">
+              <li>{success.updated} zone(s) updated</li>
+              <li>{success.created} zone(s) created</li>
+              <li>
+                Snapshot regenerated:{' '}
+                {success.snapshotRegenerated ? 'yes' : 'failed (see console)'}
+              </li>
+              <li>
+                New restore version saved:{' '}
+                {success.versionSaved ? 'yes' : 'failed (see console)'}
+              </li>
+            </ul>
+          </div>
+        ) : null}
+
         {failure ? (
           <div className="bg-bad/20 text-bad px-3 py-2 rounded text-sm">
-            Restore stopped on zone “{failure.failed.zone}”: {failure.failed.message}
+            <div className="font-semibold">⚠️ Restore stopped — partial change possible</div>
+            <div className="mt-1">
+              Failed on zone “{failure.failed.zone}”: {failure.failed.message}
+            </div>
             {failure.failed.appliedUpdates != null ? (
               <div className="text-muted text-xs mt-1">
                 {failure.failed.appliedUpdates} update(s) and{' '}
-                {failure.failed.appliedCreates} create(s) were already applied
-                before the failure — the configuration may be partially restored.
+                {failure.failed.appliedCreates} create(s) had already been applied
+                before the failure, so the configuration may be partially
+                restored. Review the Zones and Audit tabs before retrying.
               </div>
             ) : null}
           </div>
@@ -210,36 +236,50 @@ function RestorePreview({ version, diff, onCancel, onApplied }) {
 
       {/* Confirm */}
       <footer className="px-5 py-3 border-t border-border">
-        <div className="text-muted text-xs mb-2">
-          Type <span className="text-text font-mono font-semibold">RESTORE</span>{' '}
-          to enable the confirm button.
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value)}
-            placeholder="RESTORE"
-            disabled={applying}
-            className="flex-1 bg-panel border border-border rounded h-9 px-2 text-text text-sm font-mono"
-          />
-          <button
-            onClick={onCancel}
-            disabled={applying}
-            className="bg-panel border border-border text-muted px-4 py-2 rounded text-sm"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleApply}
-            disabled={!canConfirm}
-            className={`px-4 py-2 rounded text-sm font-semibold whitespace-nowrap ${
-              canConfirm ? 'bg-bad text-white' : 'bg-panel border border-border text-muted'
-            }`}
-          >
-            {applying ? 'Restoring…' : 'Confirm Restore'}
-          </button>
-        </div>
+        {success ? (
+          <div className="flex items-center justify-end">
+            <button
+              onClick={onCancel}
+              className="bg-accent text-bg font-semibold px-4 py-2 rounded text-sm"
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="text-muted text-xs mb-2">
+              Type{' '}
+              <span className="text-text font-mono font-semibold">RESTORE</span>{' '}
+              to enable the confirm button.
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="RESTORE"
+                disabled={applying}
+                className="flex-1 bg-panel border border-border rounded h-9 px-2 text-text text-sm font-mono"
+              />
+              <button
+                onClick={onCancel}
+                disabled={applying}
+                className="bg-panel border border-border text-muted px-4 py-2 rounded text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleApply}
+                disabled={!canConfirm}
+                className={`px-4 py-2 rounded text-sm font-semibold whitespace-nowrap ${
+                  canConfirm ? 'bg-bad text-white' : 'bg-panel border border-border text-muted'
+                }`}
+              >
+                {applying ? 'Restoring…' : 'Confirm Restore'}
+              </button>
+            </div>
+          </>
+        )}
       </footer>
     </>
   );
@@ -318,11 +358,12 @@ export default function ZoneVersionsModal({ onClose, onRestored }) {
     setDiff(null);
   }
 
-  async function handleApplied({ partial }) {
-    // Refresh the Zones page and reload the (now longer) version list.
+  async function handleApplied() {
+    // Refresh the Zones page and reload the (now longer) version list. The
+    // RestorePreview stays mounted so it can show its success/failure summary;
+    // the user dismisses it with Done / Cancel.
     onRestored?.();
     await load();
-    if (!partial) cancelRestore();
   }
 
   const inRestore = !!restoreTarget;

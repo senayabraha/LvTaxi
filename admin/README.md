@@ -11,12 +11,41 @@ Minimal web dashboard for managing LvTaxi staging zones.
 
 ```bash
 cd admin
-npm install
+npm install                # or: npm ci  (clean install from the committed lockfile)
 cp .env.example .env       # fill in VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY
 npm run dev                # http://localhost:5173
 ```
 
-The keys are the **same publishable key** as the mobile app. RLS limits what non-admins can see.
+### Required env vars
+| Var | Purpose |
+|-----|---------|
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | **Publishable** anon key — same key the mobile app ships |
+
+These are validated at startup (`src/lib/env.js`). If either is missing the app
+shows a clear **Configuration error** screen instead of a vague Supabase crash.
+Key *values* are never logged — only which var is missing. RLS limits what
+non-admins can see.
+
+### Build & test
+```bash
+npm run smoke:logic        # pure-logic smoke tests (no network) — fast
+npm run build              # production build to dist/
+```
+
+`smoke:logic` runs `scripts/smoke-zone-logic.mjs`, which exercises the pure
+helpers (`computeRestoreDiff`, `computeZoneHealth`, `getWaitMinutes`,
+`phaseOf`) with no Supabase/DOM and exits non-zero on failure.
+
+### Continuous integration
+`.github/workflows/admin-ci.yml` runs on every push and pull request: Node 20,
+`npm ci` → `npm run smoke:logic` → `npm run build` (with placeholder env vars,
+so no secrets are needed in CI).
+
+> **Bundle size:** the secondary pages (Builder, Training, Routes, Drivers,
+> Audit, System) are `React.lazy` code-split, so the heavy Leaflet drawing
+> controller loads only when needed. The main chunk still trips Vite's 500 kB
+> advisory (React + Supabase + Leaflet core); it is a warning, not an error.
 
 ## Sign in
 1. Sign in with your normal LvTaxi account (email + password)
@@ -32,7 +61,7 @@ The keys are the **same publishable key** as the mobile app. RLS limits what non
 
 ## Tabs
 
-Keyboard shortcuts `1`–`7` switch tabs.
+Keyboard shortcuts `1`–`8` switch tabs.
 
 | # | Tab | Purpose |
 |---|-----|---------|
@@ -43,6 +72,16 @@ Keyboard shortcuts `1`–`7` switch tabs.
 | 5 | **Builder** | Draw / track geofences |
 | 6 | **Training** | Draw new reference routes for the ML model |
 | 7 | **Audit** | Admin change history |
+| 8 | **System** | Connectivity & RLS access self-check |
+
+### System Check
+Reads the auth session and probes each backend dependency, reporting
+**PASS / WARNING / FAIL** for: auth session, own driver role, `staging_zones`,
+live stats (`get_zone_live_stats()` with a `zone_stats` fallback),
+`zone_audit_log`, `reference_routes`, `zone_config_versions`, and the
+`zones-snapshot` storage bucket. Optional features that are missing report a
+**WARNING** (not a FAIL) so a partially-provisioned project still looks healthy.
+Error text is truncated and no secrets are shown.
 
 ### Live Ops
 Reads the `get_zone_live_stats()` RPC (presence-based live counts + blended

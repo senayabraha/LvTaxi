@@ -1,11 +1,15 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, Suspense, lazy } from 'react';
 import ZonesPage from './ZonesPage.jsx';
-import BuilderPage from './builder/BuilderPage.jsx';
-import TrainingPage from './pages/TrainingPage.jsx';
 import LiveOpsPage from './pages/LiveOpsPage.jsx';
-import AuditPage from './pages/AuditPage.jsx';
-import DriversPage from './pages/DriversPage.jsx';
-import TrainingRoutesPage from './pages/TrainingRoutesPage.jsx';
+
+// Heavier / less-frequently-used pages are code-split to shrink the initial
+// bundle. Live Ops and Zones (the default landing views) stay eager.
+const BuilderPage = lazy(() => import('./builder/BuilderPage.jsx'));
+const TrainingPage = lazy(() => import('./pages/TrainingPage.jsx'));
+const AuditPage = lazy(() => import('./pages/AuditPage.jsx'));
+const DriversPage = lazy(() => import('./pages/DriversPage.jsx'));
+const TrainingRoutesPage = lazy(() => import('./pages/TrainingRoutesPage.jsx'));
+const SystemCheckPage = lazy(() => import('./pages/SystemCheckPage.jsx'));
 
 const TAB = {
   LIVE: 'live',
@@ -15,7 +19,12 @@ const TAB = {
   BUILDER: 'builder',
   TRAINING: 'training',
   AUDIT: 'audit',
+  SYSTEM: 'system',
 };
+
+function PageFallback() {
+  return <div className="text-muted text-center py-12">Loading…</div>;
+}
 
 export default function MainTabs({ session, onSignOut }) {
   const [tab, setTab] = useState(TAB.ZONES);
@@ -34,6 +43,7 @@ export default function MainTabs({ session, onSignOut }) {
       if (e.key === '5') setTab(TAB.BUILDER);
       if (e.key === '6') setTab(TAB.TRAINING);
       if (e.key === '7') setTab(TAB.AUDIT);
+      if (e.key === '8') setTab(TAB.SYSTEM);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -92,6 +102,12 @@ export default function MainTabs({ session, onSignOut }) {
               shortcut="7"
               active={tab === TAB.AUDIT}
               onClick={() => setTab(TAB.AUDIT)}
+            />
+            <TabButton
+              label="System"
+              shortcut="8"
+              active={tab === TAB.SYSTEM}
+              onClick={() => setTab(TAB.SYSTEM)}
             />
 
             {/* Desktop: show email + sign out inline */}
@@ -157,6 +173,8 @@ export default function MainTabs({ session, onSignOut }) {
             <>Geofence Builder</>
           ) : tab === TAB.TRAINING ? (
             <>Route Training — draw reference paths to teach the ML model hotel loop routes</>
+          ) : tab === TAB.SYSTEM ? (
+            <>System health — connectivity and RLS access checks</>
           ) : (
             <>Admin change history</>
           )}
@@ -164,13 +182,16 @@ export default function MainTabs({ session, onSignOut }) {
       </header>
 
       <div className="flex-1 overflow-hidden">
-        {tab === TAB.LIVE ? <LiveOpsPage /> : null}
-        {tab === TAB.ZONES ? <ZonesPage onCounts={handleCounts} /> : null}
-        {tab === TAB.DRIVERS ? <DriversPage /> : null}
-        {tab === TAB.ROUTES ? <TrainingRoutesPage /> : null}
-        {tab === TAB.BUILDER ? <BuilderPage /> : null}
-        {tab === TAB.TRAINING ? <TrainingPage /> : null}
-        {tab === TAB.AUDIT ? <AuditPage /> : null}
+        <Suspense fallback={<PageFallback />}>
+          {tab === TAB.LIVE ? <LiveOpsPage /> : null}
+          {tab === TAB.ZONES ? <ZonesPage onCounts={handleCounts} /> : null}
+          {tab === TAB.DRIVERS ? <DriversPage /> : null}
+          {tab === TAB.ROUTES ? <TrainingRoutesPage /> : null}
+          {tab === TAB.BUILDER ? <BuilderPage /> : null}
+          {tab === TAB.TRAINING ? <TrainingPage /> : null}
+          {tab === TAB.AUDIT ? <AuditPage /> : null}
+          {tab === TAB.SYSTEM ? <SystemCheckPage /> : null}
+        </Suspense>
       </div>
     </div>
   );

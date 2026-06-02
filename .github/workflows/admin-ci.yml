@@ -1,0 +1,40 @@
+name: Admin CI
+
+# Build + smoke-test the admin dashboard on every push and pull request.
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Build & smoke test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      # Lockfile is committed, so a clean, reproducible install with npm ci.
+      - name: Install dependencies
+        run: npm ci
+
+      # Pure-logic smoke tests (no network / Supabase needed).
+      - name: Smoke test pure logic
+        run: npm run smoke:logic
+
+      # Production build. Vite reads VITE_* envs; CI builds with placeholders so
+      # no real secrets are needed and none are ever committed.
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key

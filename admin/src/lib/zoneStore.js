@@ -360,7 +360,13 @@ function buildRestoreInsertRow(s) {
 }
 
 export async function restoreZoneVersion({ version, diff }) {
-  const summary = { updated: 0, created: 0, failed: null };
+  const summary = {
+    updated: 0,
+    created: 0,
+    snapshotRegenerated: false,
+    versionSaved: false,
+    failed: null,
+  };
 
   // 1. Update existing zones (sequentially).
   for (const item of diff.toUpdate) {
@@ -437,6 +443,7 @@ export async function restoreZoneVersion({ version, diff }) {
   // 3. Regenerate the canonical snapshot so drivers see the restored config.
   try {
     await regenerateSnapshot();
+    summary.snapshotRegenerated = true;
   } catch (err) {
     console.warn('[zoneStore] post-restore snapshot regen failed', err);
   }
@@ -444,6 +451,7 @@ export async function restoreZoneVersion({ version, diff }) {
   // 4. Preserve history: record that a restore happened (best-effort).
   try {
     await saveZoneVersion(`Restore applied from version #${version.version_number}`);
+    summary.versionSaved = true;
   } catch (err) {
     console.warn('[zoneStore] post-restore version save failed', err);
   }
