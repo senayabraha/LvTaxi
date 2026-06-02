@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase.js';
 import RoutePreviewModal from '../RoutePreviewModal.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
+import FilterBar from '../components/FilterBar.jsx';
 import { useToast } from '../useToast.jsx';
 
 const ROUTE_TYPE_TONE = {
@@ -105,10 +106,16 @@ export default function TrainingRoutesPage() {
     }
   }
 
+  const routesSummary = `${
+    zoneFilter === 'all' ? 'All zones' : zoneMap[zoneFilter] ?? 'Zone'
+  } · ${typeFilter === 'all' ? 'All types' : typeFilter} · ${
+    sourceFilter === 'all' ? 'All sources' : sourceFilter
+  }`;
+
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-6 py-3 border-b border-border bg-panel/40">
+      {/* Collapsible filters */}
+      <FilterBar summary={routesSummary}>
         <div className="flex items-center gap-1.5 text-xs">
           <span className="text-muted">Zone:</span>
           <select
@@ -158,7 +165,7 @@ export default function TrainingRoutesPage() {
         >
           ↻ Refresh
         </button>
-      </div>
+      </FilterBar>
 
       <main className="flex-1 overflow-auto">
         {error ? (
@@ -176,7 +183,46 @@ export default function TrainingRoutesPage() {
             No training routes match the current filters.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {/* Mobile: card rows */}
+            <div className="sm:hidden divide-y divide-border">
+              {filtered.map((r) => (
+                <div key={r.id} className="px-3 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-text font-medium truncate">
+                      {zoneMap[r.zone_id] ?? 'unknown zone'}
+                    </span>
+                    <StatusBadge tone={ROUTE_TYPE_TONE[r.route_type] ?? 'muted'}>
+                      {r.route_type}
+                    </StatusBadge>
+                  </div>
+                  <div className="text-muted text-xs mt-1">
+                    {r.source} · {Array.isArray(r.path_coords) ? r.path_coords.length : 0} pts ·{' '}
+                    {featureSummary(r.features)} · {formatTime(r.recorded_at)}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      onClick={() => setPreview(r)}
+                      className="bg-panel2 border border-border text-muted px-2.5 py-1 rounded text-xs"
+                    >
+                      🗺 Preview
+                    </button>
+                    <button
+                      onClick={() => handleDelete(r)}
+                      disabled={deletingId === r.id}
+                      className={`ml-auto px-2.5 py-1 rounded text-xs font-semibold ${
+                        confirmId === r.id ? 'bg-bad/20 text-bad' : 'bg-panel2 border border-border text-muted'
+                      }`}
+                    >
+                      {deletingId === r.id ? '…' : confirmId === r.id ? 'Sure?' : '🗑 Delete'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm" style={{ minWidth: 920 }}>
               <thead className="sticky top-0 bg-bg border-b border-border">
                 <tr className="text-muted text-xs uppercase tracking-wide">
@@ -248,7 +294,8 @@ export default function TrainingRoutesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </main>
 

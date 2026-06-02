@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase.js';
 import StatusBadge, { HealthBadge } from '../components/StatusBadge.jsx';
-import SummaryCard from '../components/SummaryCard.jsx';
+import MetricStrip from '../components/MetricStrip.jsx';
 import {
   computeZoneHealth,
   getWaitMinutes,
@@ -189,23 +189,25 @@ export default function LiveOpsPage() {
         </div>
       ) : null}
 
-      {/* Summary cards */}
-      <div className="flex flex-wrap gap-3 px-3 sm:px-6 py-4 border-b border-border">
-        <SummaryCard label="Active Zones" value={summary.activeZones} tone="accent" />
-        <SummaryCard label="Cars Staged" value={summary.totalCars} tone="good" />
-        <SummaryCard label="Zones w/ Cars" value={summary.zonesWithCars} />
-        <SummaryCard
-          label="Low Confidence"
-          value={summary.lowConfidence}
-          tone={summary.lowConfidence > 0 ? 'warn' : 'text'}
-          hint="Low / insufficient"
-        />
-        <SummaryCard
-          label="Stale / No Movement"
-          value={summary.stale}
-          tone={summary.stale > 0 ? 'bad' : 'text'}
-        />
-      </div>
+      {/* Summary metrics — pills on mobile, cards on desktop */}
+      <MetricStrip
+        items={[
+          { label: 'Active', value: summary.activeZones, tone: 'accent' },
+          { label: 'Cars', value: summary.totalCars, tone: 'good' },
+          { label: 'With Cars', value: summary.zonesWithCars },
+          {
+            label: 'Low Conf',
+            value: summary.lowConfidence,
+            tone: summary.lowConfidence > 0 ? 'warn' : 'text',
+            hint: 'Low / insufficient',
+          },
+          {
+            label: 'Stale',
+            value: summary.stale,
+            tone: summary.stale > 0 ? 'bad' : 'text',
+          },
+        ]}
+      />
 
       {/* Table */}
       <main className="flex-1 overflow-auto">

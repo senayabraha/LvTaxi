@@ -6,6 +6,7 @@ import ZoneMapModal from './ZoneMapModal.jsx';
 import ZoneCircleModal from './ZoneCircleModal.jsx';
 import AddZoneModal from './AddZoneModal.jsx';
 import ZoneVersionsModal from './ZoneVersionsModal.jsx';
+import FilterBar from './components/FilterBar.jsx';
 import { updateZoneFields, deleteZone, regenerateSnapshot } from './lib/zoneStore.js';
 import { getWaitMinutes } from './lib/zoneHealth.js';
 import { useToast } from './useToast.jsx';
@@ -384,12 +385,22 @@ export default function ZonesPage({ onCounts }) {
     toast('CSV downloaded', 'success');
   }
 
+  const filterLabels = {
+    all: 'All',
+    active: 'Active',
+    coming: 'Coming Soon',
+    phaseA: 'Phase A',
+    phaseB: 'Phase B',
+  };
+  const sortLabels = { name: 'Name', cars: 'Cars', wait: 'Wait' };
+  const zonesSummary = `${filterLabels[filter] ?? 'All'} · Sort: ${sortLabels[sortBy] ?? 'Name'}`;
+
   return (
     <div className="flex flex-col h-full">
       <WorkAreaSection />
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-6 py-3 border-b border-border bg-panel/40">
+      {/* Collapsible toolbar */}
+      <FilterBar summary={zonesSummary}>
         {/* Search */}
         <input
           type="search"
@@ -481,7 +492,7 @@ export default function ZonesPage({ onCounts }) {
             📂 Upload GeoJSON
           </button>
         </div>
-      </div>
+      </FilterBar>
 
       <main className="flex-1 overflow-auto">
         {zoneError ? (

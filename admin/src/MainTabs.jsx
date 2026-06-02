@@ -22,6 +22,18 @@ const TAB = {
   SYSTEM: 'system',
 };
 
+// Order + labels for the horizontal tab bar. Shortcuts are the 1-based index.
+const TABS = [
+  { key: TAB.LIVE, label: 'Live Ops' },
+  { key: TAB.ZONES, label: 'Zones' },
+  { key: TAB.DRIVERS, label: 'Drivers' },
+  { key: TAB.ROUTES, label: 'Routes' },
+  { key: TAB.BUILDER, label: 'Builder' },
+  { key: TAB.TRAINING, label: 'Training' },
+  { key: TAB.AUDIT, label: 'Audit' },
+  { key: TAB.SYSTEM, label: 'System' },
+];
+
 function PageFallback() {
   return <div className="text-muted text-center py-12">Loading…</div>;
 }
@@ -36,152 +48,80 @@ export default function MainTabs({ session, onSignOut }) {
   useEffect(() => {
     function onKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      if (e.key === '1') setTab(TAB.LIVE);
-      if (e.key === '2') setTab(TAB.ZONES);
-      if (e.key === '3') setTab(TAB.DRIVERS);
-      if (e.key === '4') setTab(TAB.ROUTES);
-      if (e.key === '5') setTab(TAB.BUILDER);
-      if (e.key === '6') setTab(TAB.TRAINING);
-      if (e.key === '7') setTab(TAB.AUDIT);
-      if (e.key === '8') setTab(TAB.SYSTEM);
+      const idx = Number(e.key) - 1;
+      if (idx >= 0 && idx < TABS.length) setTab(TABS[idx].key);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const userLabel = session.user.email ?? session.user.phone ?? '—';
+  const activeLabel = TABS.find((t) => t.key === tab)?.label ?? '';
+
+  // Compact subtitle shown in the header: zone counts on the Zones tab,
+  // otherwise the active section name.
+  const subtitle =
+    tab === TAB.ZONES
+      ? `${counts.active} active · ${counts.total} total`
+      : activeLabel;
 
   return (
-    <div className="flex flex-col h-full bg-bg">
-      <header className="border-b border-border bg-panel">
-        {/* Row 1: brand + tabs + account menu */}
-        <div className="flex items-center justify-between px-3 sm:px-6 py-2 gap-2">
-          <div className="text-accent text-lg sm:text-2xl font-bold whitespace-nowrap">
-            🚕 LvTaxi Admin
-          </div>
-
-          <div className="flex items-center flex-wrap justify-end gap-1.5 sm:gap-2">
-            <TabButton
-              label="Live Ops"
-              shortcut="1"
-              active={tab === TAB.LIVE}
-              onClick={() => setTab(TAB.LIVE)}
-            />
-            <TabButton
-              label="Zones"
-              shortcut="2"
-              active={tab === TAB.ZONES}
-              onClick={() => setTab(TAB.ZONES)}
-            />
-            <TabButton
-              label="Drivers"
-              shortcut="3"
-              active={tab === TAB.DRIVERS}
-              onClick={() => setTab(TAB.DRIVERS)}
-            />
-            <TabButton
-              label="Routes"
-              shortcut="4"
-              active={tab === TAB.ROUTES}
-              onClick={() => setTab(TAB.ROUTES)}
-            />
-            <TabButton
-              label="Builder"
-              shortcut="5"
-              active={tab === TAB.BUILDER}
-              onClick={() => setTab(TAB.BUILDER)}
-            />
-            <TabButton
-              label="Training"
-              shortcut="6"
-              active={tab === TAB.TRAINING}
-              onClick={() => setTab(TAB.TRAINING)}
-            />
-            <TabButton
-              label="Audit"
-              shortcut="7"
-              active={tab === TAB.AUDIT}
-              onClick={() => setTab(TAB.AUDIT)}
-            />
-            <TabButton
-              label="System"
-              shortcut="8"
-              active={tab === TAB.SYSTEM}
-              onClick={() => setTab(TAB.SYSTEM)}
-            />
-
-            {/* Desktop: show email + sign out inline */}
-            <div className="hidden md:flex items-center gap-2 ml-2 pl-3 border-l border-border">
-              <div className="text-muted text-xs max-w-[180px] truncate">
-                {userLabel}
-              </div>
-              <button
-                onClick={onSignOut}
-                className="bg-panel2 border border-border text-muted px-3 py-1.5 rounded text-sm hover:text-text"
-              >
-                Sign out
-              </button>
-            </div>
-
-            {/* Mobile: hamburger that opens the account menu */}
-            <div className="md:hidden relative">
-              <button
-                onClick={() => setMenuOpen((o) => !o)}
-                className="bg-panel2 border border-border text-muted w-9 h-9 rounded flex items-center justify-center"
-                aria-label="Account menu"
-              >
-                ⋮
-              </button>
-              {menuOpen ? (
-                <div
-                  className="absolute right-0 top-11 z-50 bg-panel2 border border-border rounded shadow-lg py-2 w-56"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <div className="px-3 py-1 text-muted text-xs truncate">
-                    {userLabel}
-                  </div>
-                  <button
-                    onClick={onSignOut}
-                    className="w-full text-left px-3 py-2 text-bad text-sm hover:bg-panel"
-                  >
-                    Sign out
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
+    <div className="flex flex-col h-[100dvh] bg-bg">
+      {/* ── Sticky layer 1: compact header ───────────────────────────────── */}
+      <header className="shrink-0 h-[52px] flex items-center justify-between gap-3 px-3 sm:px-6 bg-panel border-b border-border">
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span className="text-accent text-base sm:text-xl font-bold whitespace-nowrap">
+            🚕 LvTaxi
+          </span>
+          <span className="text-muted text-xs sm:text-sm truncate">{subtitle}</span>
         </div>
-
-        {/* Row 2: context line (counts / page name) */}
-        <div className="px-3 sm:px-6 pb-2 text-muted text-xs">
-          {tab === TAB.LIVE ? (
-            <>Live zone health and wait confidence</>
-          ) : tab === TAB.ZONES ? (
-            <>
-              <span className="text-good font-medium">{counts.active}</span> active
-              {' · '}
-              <span className="text-warn font-medium">{counts.coming}</span>{' '}
-              coming soon
-              {' · '}
-              <span className="text-text font-medium">{counts.total}</span> total
-            </>
-          ) : tab === TAB.DRIVERS ? (
-            <>Driver roster, presence and classification</>
-          ) : tab === TAB.ROUTES ? (
-            <>Saved training routes — preview and manage reference paths</>
-          ) : tab === TAB.BUILDER ? (
-            <>Geofence Builder</>
-          ) : tab === TAB.TRAINING ? (
-            <>Route Training — draw reference paths to teach the ML model hotel loop routes</>
-          ) : tab === TAB.SYSTEM ? (
-            <>System health — connectivity and RLS access checks</>
-          ) : (
-            <>Admin change history</>
-          )}
+        <div className="text-muted text-xs hidden sm:block max-w-[180px] truncate">
+          {userLabel}
         </div>
       </header>
 
-      <div className="flex-1 overflow-hidden">
+      {/* ── Sticky layer 2: horizontal tab bar ───────────────────────────── */}
+      <nav className="shrink-0 flex items-center gap-1.5 overflow-x-auto no-scrollbar px-2 py-1.5 bg-panel border-b border-border">
+        {TABS.map((t, i) => (
+          <TabButton
+            key={t.key}
+            label={t.label}
+            shortcut={i + 1}
+            active={tab === t.key}
+            onClick={() => setTab(t.key)}
+          />
+        ))}
+
+        {/* More: account menu (email + sign out) */}
+        <div className="relative shrink-0 ml-auto">
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            className="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap bg-panel2 border border-border text-muted hover:text-text"
+          >
+            More ⋯
+          </button>
+          {menuOpen ? (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-10 z-50 bg-panel2 border border-border rounded shadow-lg py-2 w-56">
+                <div className="px-3 py-1 text-muted text-xs truncate">{userLabel}</div>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onSignOut();
+                  }}
+                  className="w-full text-left px-3 py-2 text-bad text-sm hover:bg-panel"
+                >
+                  Sign out
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </nav>
+
+      {/* ── Scrolling content (everything else) ──────────────────────────── */}
+      <div className="flex-1 min-h-0 overflow-hidden">
         <Suspense fallback={<PageFallback />}>
           {tab === TAB.LIVE ? <LiveOpsPage /> : null}
           {tab === TAB.ZONES ? <ZonesPage onCounts={handleCounts} /> : null}
@@ -201,7 +141,7 @@ function TabButton({ label, shortcut, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`px-2.5 sm:px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5 ${
+      className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap flex items-center gap-1.5 ${
         active
           ? 'bg-accent text-bg'
           : 'bg-panel2 border border-border text-muted hover:text-text'

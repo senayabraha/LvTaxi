@@ -374,24 +374,38 @@ export default function BottomToolbar({
 
   const showSave = inTrackReady || inDrawWithFeature;
 
+  // Collapsible on mobile so the map stays map-first; always open on desktop.
+  const [open, setOpen] = useState(false);
+
   return (
-    <div
-      className="bg-panel border-t border-border px-3 sm:px-4 pt-3 pb-3 sm:pb-4 space-y-2 sm:space-y-3"
-      style={{ maxHeight: '55vh', overflowY: 'auto' }}
-    >
-      {mode === 'track' ? (
-        <TrackRows ctrl={trackCtrl} onShowPoints={onShowPoints} />
-      ) : (
-        <DrawRows ctrl={drawCtrl} onShowPoints={onShowPoints} />
-      )}
+    <div className="bg-panel border-t border-border safe-bottom shrink-0">
+      {/* Mobile handle / toggle */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="sm:hidden w-full flex items-center justify-center gap-2 py-2 text-muted text-xs"
+      >
+        <span className="font-semibold">⚙ Controls</span>
+        <span className="text-[10px]">{open ? '▼' : '▲'}</span>
+      </button>
 
-      {(trackCtrl?.error || drawCtrl?.error) ? (
-        <div className="text-bad text-xs">
-          {trackCtrl?.error || drawCtrl?.error}
-        </div>
-      ) : null}
+      <div
+        className={`${open ? 'block' : 'hidden'} sm:block px-3 sm:px-4 pt-1 sm:pt-3 pb-3 sm:pb-4 space-y-2 sm:space-y-3 overflow-y-auto`}
+        style={{ maxHeight: '45vh' }}
+      >
+        {mode === 'track' ? (
+          <TrackRows ctrl={trackCtrl} onShowPoints={onShowPoints} />
+        ) : (
+          <DrawRows ctrl={drawCtrl} onShowPoints={onShowPoints} />
+        )}
 
-      {showSave ? <InlineSave feature={feature} onSaved={onSaved} /> : null}
+        {(trackCtrl?.error || drawCtrl?.error) ? (
+          <div className="text-bad text-xs">
+            {trackCtrl?.error || drawCtrl?.error}
+          </div>
+        ) : null}
+
+        {showSave ? <InlineSave feature={feature} onSaved={onSaved} /> : null}
+      </div>
     </div>
   );
 }

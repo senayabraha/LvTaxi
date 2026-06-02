@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase.js';
+import FilterBar from '../components/FilterBar.jsx';
 
 const RESULT_LIMIT = 200;
 
@@ -87,10 +88,15 @@ export default function AuditPage() {
     return list;
   }, [rows, search, fieldFilter]);
 
+  const rangeLabel = RANGES.find((r) => r.k === range)?.label ?? 'All';
+  const auditSummary = `${rangeLabel}${fieldFilter !== 'all' ? ` · ${fieldFilter}` : ''}${
+    search.trim() ? ` · "${search.trim()}"` : ''
+  }`;
+
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-6 py-3 border-b border-border bg-panel/40">
+      {/* Collapsible filters */}
+      <FilterBar summary={auditSummary}>
         <input
           type="search"
           value={search}
@@ -137,7 +143,7 @@ export default function AuditPage() {
         >
           ↻ Refresh
         </button>
-      </div>
+      </FilterBar>
 
       <main className="flex-1 overflow-auto">
         {error ? (
@@ -156,7 +162,33 @@ export default function AuditPage() {
             No audit entries match the current filters.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {/* Mobile: card rows */}
+            <div className="sm:hidden divide-y divide-border">
+              {filtered.map((r) => (
+                <div key={r.id} className="px-3 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-text font-medium truncate">{r.zone_name}</span>
+                    <span className="text-accent text-xs font-mono shrink-0">{r.field}</span>
+                  </div>
+                  <div className="text-xs mt-1 flex items-center gap-2">
+                    {renderValue(r.old_value)}
+                    <span className="text-muted">→</span>
+                    {renderValue(r.new_value)}
+                  </div>
+                  <div className="text-muted text-[11px] mt-1">
+                    {formatTime(r.changed_at)}
+                    {r.admin_id ? ` · ${r.admin_id.slice(0, 8)}…` : ''}
+                  </div>
+                </div>
+              ))}
+              <div className="text-muted text-xs text-center py-3">
+                Showing {filtered.length} of up to {RESULT_LIMIT} most recent entries
+              </div>
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm" style={{ minWidth: 900 }}>
               <thead className="sticky top-0 bg-bg border-b border-border">
                 <tr className="text-muted text-xs uppercase tracking-wide">
@@ -190,7 +222,8 @@ export default function AuditPage() {
             <div className="text-muted text-xs text-center py-3">
               Showing {filtered.length} of up to {RESULT_LIMIT} most recent entries
             </div>
-          </div>
+            </div>
+          </>
         )}
       </main>
     </div>

@@ -3,6 +3,7 @@ import { useLeafletMap } from '../builder/MapView.jsx';
 import { useDrawController, DRAW_MODE } from '../builder/useDrawController.js';
 import { featuresFromPath } from '../lib/featureExtractFromPath.js';
 import { supabase } from '../supabase.js';
+import InfoHelp from '../components/InfoHelp.jsx';
 
 const ROUTE_TYPES = [
   {
@@ -119,15 +120,13 @@ export default function TrainingPage() {
 
   return (
     <div className="flex flex-col h-full bg-bg">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border bg-panel shrink-0">
-        {/* Zone selector */}
-        <div className="flex flex-col gap-1 min-w-[200px]">
-          <label className="text-muted text-xs">Hotel / Zone</label>
+      {/* Compact controls above the map */}
+      <div className="shrink-0 bg-panel border-b border-border px-3 py-2 space-y-2">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
           <select
             value={selectedZoneId}
             onChange={(e) => setSelectedZoneId(e.target.value)}
-            className="bg-panel2 border border-border text-text text-sm px-3 py-1.5 rounded focus:outline-none focus:border-accent"
+            className="shrink-0 bg-panel2 border border-border text-text text-sm px-3 py-1.5 rounded focus:outline-none focus:border-accent max-w-[45vw] sm:max-w-none"
           >
             <option value="">Select a zone…</option>
             {zones.map((z) => (
@@ -136,52 +135,35 @@ export default function TrainingPage() {
               </option>
             ))}
           </select>
+          {ROUTE_TYPES.map((rt) => (
+            <button
+              key={rt.value}
+              onClick={() => setRouteType(rt.value)}
+              className={`shrink-0 px-3 py-1.5 rounded text-sm font-medium border transition-colors whitespace-nowrap ${
+                routeType === rt.value
+                  ? 'text-bg border-transparent'
+                  : 'bg-panel2 border-border text-muted hover:text-text'
+              }`}
+              style={routeType === rt.value ? { backgroundColor: rt.color, borderColor: rt.color } : {}}
+              title={rt.description}
+            >
+              {rt.label}
+            </button>
+          ))}
         </div>
 
-        {/* Route type selector */}
-        <div className="flex flex-col gap-1">
-          <label className="text-muted text-xs">Route type</label>
-          <div className="flex gap-2">
-            {ROUTE_TYPES.map((rt) => (
-              <button
-                key={rt.value}
-                onClick={() => setRouteType(rt.value)}
-                className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
-                  routeType === rt.value
-                    ? 'text-bg border-transparent'
-                    : 'bg-panel2 border-border text-muted hover:text-text'
-                }`}
-                style={routeType === rt.value ? { backgroundColor: rt.color, borderColor: rt.color } : {}}
-                title={rt.description}
-              >
-                {rt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Point count */}
-        <div className="text-muted text-xs self-end pb-1.5">
-          {drawCtrl.points.length} point{drawCtrl.points.length !== 1 ? 's' : ''}
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-2 ml-auto self-end">
-          <button
-            onClick={drawCtrl.clearAll}
-            disabled={drawCtrl.points.length === 0}
-            className="bg-panel2 border border-border text-muted px-3 py-1.5 rounded text-sm hover:text-text disabled:opacity-40"
-          >
-            Clear
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            className="bg-accent text-bg px-4 py-1.5 rounded text-sm font-semibold disabled:opacity-40 hover:opacity-90"
-          >
-            {saving ? 'Saving…' : 'Submit Training Route'}
-          </button>
-        </div>
+        <InfoHelp>
+          {selectedType ? (
+            <>
+              <span style={{ color: selectedType.color }} className="font-medium">
+                {selectedType.label}:
+              </span>{' '}
+              {selectedType.description}. Click the map to place route points. Drag to adjust. Right-click to delete a point.
+            </>
+          ) : (
+            'Select a zone and route type, then click the map to draw the route path.'
+          )}
+        </InfoHelp>
       </div>
 
       {/* Result banner */}
@@ -198,21 +180,7 @@ export default function TrainingPage() {
         </div>
       )}
 
-      {/* Instruction */}
-      <div className="px-4 py-2 text-muted text-xs border-b border-border bg-panel shrink-0">
-        {selectedType ? (
-          <>
-            <span style={{ color: selectedType.color }} className="font-medium">
-              {selectedType.label}:
-            </span>{' '}
-            {selectedType.description}. Click the map to place route points. Drag to adjust. Right-click to delete a point.
-          </>
-        ) : (
-          'Select a zone and route type, then click the map to draw the route path.'
-        )}
-      </div>
-
-      {/* Map */}
+      {/* Map (takes the majority of the viewport) */}
       <div className="relative flex-1 min-h-0">
         <div ref={mapContainerRef} className="absolute inset-0" />
         <button
@@ -227,6 +195,27 @@ export default function TrainingPage() {
           title="Center on me"
         >
           🎯
+        </button>
+      </div>
+
+      {/* Sticky bottom action bar */}
+      <div className="shrink-0 bg-panel border-t border-border px-3 py-2 safe-bottom flex items-center gap-2">
+        <span className="text-muted text-xs whitespace-nowrap">
+          {drawCtrl.points.length} pt{drawCtrl.points.length !== 1 ? 's' : ''}
+        </span>
+        <button
+          onClick={drawCtrl.clearAll}
+          disabled={drawCtrl.points.length === 0}
+          className="bg-panel2 border border-border text-muted px-3 py-2 rounded text-sm hover:text-text disabled:opacity-40"
+        >
+          Clear
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="ml-auto flex-1 sm:flex-none bg-accent text-bg px-4 py-2 rounded text-sm font-semibold disabled:opacity-40 hover:opacity-90"
+        >
+          {saving ? 'Saving…' : 'Submit Training Route'}
         </button>
       </div>
     </div>

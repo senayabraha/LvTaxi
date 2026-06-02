@@ -153,7 +153,32 @@ export default function SystemCheckPage() {
           Verifies connectivity and RLS access for each admin feature. Optional
           features that are missing are reported as warnings, not failures.
         </div>
-        <div className="border border-border rounded overflow-x-auto">
+        {/* Mobile: card rows */}
+        <div className="sm:hidden border border-border rounded divide-y divide-border">
+          {checks.length === 0 ? (
+            <div className="text-muted text-center py-8">
+              {running ? 'Running checks…' : 'No results.'}
+            </div>
+          ) : (
+            checks.map((c) => (
+              <div key={c.name} className="px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-text text-sm">
+                    {c.name}
+                    {c.optional ? (
+                      <span className="text-muted text-[10px] ml-1">(optional)</span>
+                    ) : null}
+                  </span>
+                  <StatusBadge tone={STATUS_TONE[c.status]}>{c.status}</StatusBadge>
+                </div>
+                <div className="text-muted text-xs mt-1 break-words">{c.detail}</div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop: table */}
+        <div className="hidden sm:block border border-border rounded overflow-x-auto">
           <table className="w-full text-sm" style={{ minWidth: 560 }}>
             <thead className="bg-panel2 text-muted text-xs uppercase">
               <tr>

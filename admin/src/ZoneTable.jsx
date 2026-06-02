@@ -1,5 +1,6 @@
 import React from 'react';
 import ZoneRow from './ZoneRow.jsx';
+import ZoneCard from './ZoneCard.jsx';
 
 export default function ZoneTable({ zones, stats, onUpdate, onDelete, onPreview, onEditCircle }) {
   if (zones.length === 0) {
@@ -8,7 +9,24 @@ export default function ZoneTable({ zones, stats, onUpdate, onDelete, onPreview,
     );
   }
   return (
-    <div className="overflow-x-auto">
+    <>
+      {/* Mobile: card rows */}
+      <div className="sm:hidden divide-y divide-border">
+        {zones.map((z) => (
+          <ZoneCard
+            key={z.id}
+            zone={z}
+            stat={stats[z.id]}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+            onPreview={onPreview}
+            onEditCircle={onEditCircle}
+          />
+        ))}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="hidden sm:block overflow-x-auto">
       <table className="w-full text-sm" style={{ minWidth: 960 }}>
         <thead className="sticky top-0 bg-bg border-b border-border">
           <tr className="text-muted text-xs uppercase tracking-wide">
@@ -55,6 +73,7 @@ export default function ZoneTable({ zones, stats, onUpdate, onDelete, onPreview,
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }

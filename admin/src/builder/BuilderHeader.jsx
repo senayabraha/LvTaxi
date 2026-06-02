@@ -30,28 +30,9 @@ export default function BuilderHeader({
   )}:${String(ss).padStart(2, '0')}`;
 
   return (
-    <div className="bg-panel border-b border-border">
-      <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2">
-        <div className="text-text font-semibold text-sm sm:text-base whitespace-nowrap">
-          📍 Geofence Builder
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          <Chip
-            label="GPS"
-            value={gpsAccuracy != null ? `±${Math.round(gpsAccuracy)}m` : '—'}
-            color="#60A5FA"
-          />
-          <Chip
-            label={mode === TAB.TRACK ? 'Pts' : 'Pts'}
-            value={pointsCount}
-            color="#22C55E"
-          />
-          {mode === TAB.TRACK ? (
-            <Chip label="Time" value={timer} color="#A78BFA" />
-          ) : null}
-        </div>
-      </div>
-      <div className="flex border-t border-border">
+    <div className="bg-panel border-b border-border flex items-center gap-2 px-2 sm:px-4 py-1.5">
+      {/* Mode segmented control */}
+      <div className="flex bg-panel2 border border-border rounded-lg p-0.5 shrink-0">
         <ModeTab
           label="📡 Track"
           active={mode === TAB.TRACK}
@@ -63,6 +44,19 @@ export default function BuilderHeader({
           onClick={() => onModeChange(TAB.DRAW)}
         />
       </div>
+
+      {/* Live chips */}
+      <div className="flex items-center gap-1.5 ml-auto overflow-x-auto no-scrollbar">
+        <Chip
+          label="GPS"
+          value={gpsAccuracy != null ? `±${Math.round(gpsAccuracy)}m` : '—'}
+          color="#60A5FA"
+        />
+        <Chip label="Pts" value={pointsCount} color="#22C55E" />
+        {mode === TAB.TRACK ? (
+          <Chip label="Time" value={timer} color="#A78BFA" />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -71,10 +65,8 @@ function ModeTab({ label, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`flex-1 py-2.5 text-sm font-semibold transition ${
-        active
-          ? 'text-accent border-b-2 border-accent bg-bg/40'
-          : 'text-muted border-b-2 border-transparent hover:text-text'
+      className={`px-3 py-1 rounded-md text-sm font-semibold whitespace-nowrap transition ${
+        active ? 'bg-accent text-bg' : 'text-muted hover:text-text'
       }`}
     >
       {label}

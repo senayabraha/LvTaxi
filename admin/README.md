@@ -59,6 +59,23 @@ so no secrets are needed in CI).
 - Sort by Name / Cars / Wait
 - Upload GeoJSON → preview → bulk import
 
+## Mobile layout
+The admin uses a compact mobile-first shell:
+- Two sticky layers only: a ~52px header (logo + active section) and a single
+  horizontally-scrollable tab bar (`no-scrollbar`); everything else scrolls.
+- Account actions (email + Sign out) live behind the **More** button at the end
+  of the tab bar.
+- Summary stats render as scrollable **metric pills** on mobile, larger cards on
+  desktop (`MetricStrip`).
+- Page filters/controls collapse behind a **Filters** button with a one-line
+  summary on mobile, expanded on desktop (`FilterBar`).
+- Long help text collapses into an **ⓘ Help** toggle on mobile (`InfoHelp`).
+- Wide tables become **card rows** on mobile (Zones, Drivers, Routes, Audit,
+  System); the full tables remain on desktop.
+- **Builder** and **Training** are map-first: a compact mode/controls row on top,
+  the map filling the viewport (`100dvh`-based flex), and a sticky bottom action
+  bar that respects the iOS safe area (`safe-bottom`).
+
 ## Tabs
 
 Keyboard shortcuts `1`–`8` switch tabs.
