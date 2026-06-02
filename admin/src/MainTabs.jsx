@@ -81,19 +81,24 @@ export default function MainTabs({ session, onSignOut }) {
       </header>
 
       {/* ── Sticky layer 2: horizontal tab bar ───────────────────────────── */}
-      <nav className="shrink-0 flex items-center gap-1.5 overflow-x-auto no-scrollbar px-2 py-1.5 bg-panel border-b border-border">
-        {TABS.map((t, i) => (
-          <TabButton
-            key={t.key}
-            label={t.label}
-            shortcut={i + 1}
-            active={tab === t.key}
-            onClick={() => setTab(t.key)}
-          />
-        ))}
+      <nav className="shrink-0 flex items-center gap-1.5 px-2 py-1.5 bg-panel border-b border-border">
+        {/* Only the tab list scrolls horizontally. The overflow container is
+            kept separate from the More menu so the dropdown (which opens below
+            the bar) isn't clipped by overflow-x/overflow-y. */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 min-w-0">
+          {TABS.map((t, i) => (
+            <TabButton
+              key={t.key}
+              label={t.label}
+              shortcut={i + 1}
+              active={tab === t.key}
+              onClick={() => setTab(t.key)}
+            />
+          ))}
+        </div>
 
         {/* More: account menu (email + sign out) */}
-        <div className="relative shrink-0 ml-auto">
+        <div className="relative shrink-0 ml-2">
           <button
             onClick={() => setMenuOpen((o) => !o)}
             className="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap bg-panel2 border border-border text-muted hover:text-text"

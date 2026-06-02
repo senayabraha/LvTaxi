@@ -7,19 +7,33 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  Switch,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { useDispatch, useSelector } from 'react-redux';
 import { signOut } from '../lib/sessionManager';
 import { supabase } from '../lib/supabase';
-import {
-  enableTrackingFromUI,
-  disableTrackingFromUI,
-} from '../lib/backgroundTracking/backgroundTrackingService';
 import { setProfile } from '../store/driversSlice';
 import { TAXI_COMPANIES, TAXI_COMPANY_OTHER } from '../lib/constants';
 import TrackingDebugPanel from '../components/TrackingDebugPanel';
+
+// Driver-facing legal pages. URLs come from app config (app.config.js → extra)
+// with safe production fallbacks.
+const PRIVACY_URL =
+  Constants.expoConfig?.extra?.privacyPolicyUrl || 'https://lvtaxi.online/privacy';
+const TERMS_URL =
+  Constants.expoConfig?.extra?.termsUrl || 'https://lvtaxi.online/terms';
+
+// Open an external legal URL safely. canOpenURL is unreliable for https links
+// in Expo, so we open directly and surface a friendly error on failure.
+async function openLegalUrl(url) {
+  try {
+    await Linking.openURL(url);
+  } catch (err) {
+    Alert.alert('Could not open link', err?.message || 'Please try again later.');
+  }
+}
 
 // Convert raw automatic-tracking statuses into user-friendly labels. Unknown
 // values fall back to a humanized form of the raw status.
@@ -42,9 +56,7 @@ export default function ProfileScreen() {
   const isAdmin = useSelector((s) => s.auth.isAdmin);
   const profile = useSelector((s) => s.drivers.profile);
   const status = useSelector((s) => s.drivers.status);
-  const trackingEnabled = useSelector((s) => s.drivers.trackingEnabled);
   const [deleting, setDeleting] = useState(false);
-  const [trackingBusy, setTrackingBusy] = useState(false);
 
   // Company editing
   const [editingCompany, setEditingCompany] = useState(false);
@@ -91,28 +103,6 @@ export default function ProfileScreen() {
     }
     dispatch(setProfile({ ...profile, taxi_company: value }));
     setEditingCompany(false);
-  }
-
-  async function onToggleTracking(next) {
-    if (trackingBusy) return;
-    setTrackingBusy(true);
-    try {
-      if (next) {
-        const ok = await enableTrackingFromUI();
-        if (!ok) {
-          Alert.alert(
-            'Location permission needed',
-            'LV Taxi needs location permission to track automatically. Enable it in system settings, then try again.'
-          );
-        }
-      } else {
-        await disableTrackingFromUI();
-      }
-    } catch (err) {
-      console.warn('[ProfileScreen] toggle tracking failed', err);
-    } finally {
-      setTrackingBusy(false);
-    }
   }
 
   async function performDelete() {
@@ -255,19 +245,19 @@ export default function ProfileScreen() {
           <Text className="text-muted text-xs mt-3 mb-1">Driver status</Text>
           <Text className="text-text">{getStatusLabel(status)}</Text>
 
-          {/* 5. Subscription */}
-          <Text className="text-muted text-xs mt-3 mb-1">Subscription</Text>
-          <Text className="text-text capitalize">
-            {profile?.subscription_tier ?? 'free'}
-          </Text>
+          {/* Subscription row is intentionally hidden from the profile UI. */}
 
-          {/* 6. Driver ID (support/debug — kept lower in the card) */}
-          <Text className="text-muted text-xs mt-3 mb-1">Driver ID</Text>
-          <Text className="text-text text-xs" numberOfLines={1}>
-            {profile?.id ?? session?.user?.id ?? '—'}
-          </Text>
+          {/* 5. Driver ID — admin/support only; hidden for regular drivers. */}
+          {isAdmin ? (
+            <>
+              <Text className="text-muted text-xs mt-3 mb-1">Driver ID</Text>
+              <Text className="text-text text-xs" numberOfLines={1}>
+                {profile?.id ?? session?.user?.id ?? '—'}
+              </Text>
+            </>
+          ) : null}
 
-          {/* 7. Role (admin only) */}
+          {/* 6. Role (admin only) */}
           {isAdmin ? (
             <>
               <Text className="text-muted text-xs mt-3 mb-1">Role</Text>
@@ -276,38 +266,27 @@ export default function ProfileScreen() {
           ) : null}
         </View>
 
-        {/* ── Automatic tracking setting ─────────────────────────────────── */}
+        {/* ── Legal ──────────────────────────────────────────────────────── */}
         <View className="mx-4 mt-4 bg-panel rounded-lg border border-border p-4">
-          <View className="flex-row items-center justify-between">
-            <View className="flex-1 mr-3">
-              <Text className="text-text text-base font-semibold">
-                Automatic tracking
-              </Text>
-              <Text className="text-muted text-xs mt-1">
-                Keeps your staging-zone position accurate automatically. No Start
-                or End Shift needed.
-              </Text>
-            </View>
-            {trackingBusy ? (
-              <ActivityIndicator color="#F5C518" />
-            ) : (
-              <Switch
-                value={trackingEnabled !== false}
-                onValueChange={onToggleTracking}
-                trackColor={{ false: '#4B5563', true: '#F5C518' }}
-                thumbColor="#FFFFFF"
-              />
-            )}
-          </View>
-          <Text className="text-muted text-xs mt-3">
-            LV Taxi can track automatically while the app is in the background or
-            the screen is locked. If you force-close the app, tracking may stop
-            until you reopen it.
-          </Text>
+          <Text className="text-text text-base font-semibold mb-3">Legal</Text>
+          <Pressable
+            onPress={() => openLegalUrl(PRIVACY_URL)}
+            className="flex-row items-center justify-between bg-bg border border-border rounded-lg px-4 py-3 mb-2"
+          >
+            <Text className="text-text text-base">Privacy Policy</Text>
+            <Text className="text-accent text-base">›</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => openLegalUrl(TERMS_URL)}
+            className="flex-row items-center justify-between bg-bg border border-border rounded-lg px-4 py-3"
+          >
+            <Text className="text-text text-base">Terms &amp; Conditions</Text>
+            <Text className="text-accent text-base">›</Text>
+          </Pressable>
         </View>
 
-        {/* Dev-only: renders null in production builds. */}
-        <TrackingDebugPanel />
+        {/* Admin-only diagnostics. */}
+        {isAdmin ? <TrackingDebugPanel /> : null}
 
         <View className="px-4 mt-6">
           <Pressable
