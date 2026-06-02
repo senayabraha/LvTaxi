@@ -219,7 +219,7 @@ export default function ProfileScreen() {
                 <TextInput
                   value={customCompany}
                   onChangeText={setCustomCompany}
-                  placeholder="Enter your taxi company"
+                  placeholder="Enter taxi company name"
                   placeholderTextColor="#5A6478"
                   autoCapitalize="words"
                   className="bg-bg border border-border rounded-lg px-3 h-12 text-text text-base mb-2"

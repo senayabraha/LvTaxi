@@ -109,7 +109,7 @@ export default function NameScreen({ navigation }) {
           />
 
           <Text className="text-muted text-xs mt-6 mb-2">
-            Which taxi company do you work for?
+            Which taxi company do you currently drive for?
           </Text>
           <View>
             {TAXI_COMPANIES.map((option) => {
@@ -146,7 +146,7 @@ export default function NameScreen({ navigation }) {
             <TextInput
               value={customCompany}
               onChangeText={setCustomCompany}
-              placeholder="Enter your taxi company"
+              placeholder="Enter taxi company name"
               placeholderTextColor="#5A6478"
               autoCapitalize="words"
               className="bg-panel border border-border rounded-lg px-4 h-14 text-text text-lg mt-1"

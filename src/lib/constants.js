@@ -178,15 +178,18 @@ export const PRESENCE_HEARTBEAT_INTERVAL_MS = PRESENCE_HEARTBEAT_INTERVAL_SECOND
 // custom name, or null. This is private to the driver and LV Taxi admin.
 export const TAXI_COMPANY_OTHER = 'Other';
 export const TAXI_COMPANIES = [
-  'Taxi Management',
-  'zTrip',
-  'Desert Cab',
+  'A-Cab',
+  'YCS / Taxi Management',
+  'Desert / Virgin Valley',
+  'zTrip (Whittlesea + Henderson)',
+  'Deluxe Cab',
+  'Lucky Cab',
   'Nellis Cab',
   'Western Cab',
-  'Lucky Cab',
-  'Whittlesea Blue Cab',
   TAXI_COMPANY_OTHER,
 ];
+// Backwards/forwards-compatible alias — both names refer to the same list.
+export const TAXI_COMPANY_OPTIONS = TAXI_COMPANIES;
 
 export const DRIVER_STATUS = {
   PASSIVE_FAR: 'passive_far',
