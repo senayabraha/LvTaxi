@@ -47,6 +47,40 @@ so no secrets are needed in CI).
 > controller loads only when needed. The main chunk still trips Vite's 500 kB
 > advisory (React + Supabase + Leaflet core); it is a warning, not an error.
 
+## Testing
+
+### Build & pure-logic tests
+```bash
+cd admin
+npm run smoke:logic        # pure-logic smoke tests (no network) — fast
+npm run build              # production build to dist/
+```
+These are exactly what CI runs (`npm ci` → `npm run smoke:logic` → `npm run build`).
+
+### Test the mobile layout locally
+1. Start the dev server bound to your LAN so a phone can reach it:
+   ```bash
+   cd admin
+   npm run dev -- --host        # prints a Network URL like http://192.168.x.x:5173
+   ```
+2. Make sure your phone is on the **same Wi-Fi**, then open the Network URL in
+   mobile Safari / Chrome. (Or use Chrome DevTools device toolbar / Safari
+   Responsive Design Mode for a quick desktop check.)
+3. The app is mobile-first; no special build flag is needed.
+
+### Recommended iPhone Safari test steps
+1. Open the Network URL in iPhone Safari and sign in as an admin.
+2. Swipe the **tab bar** left/right — confirm it stays one row and never wraps.
+3. Open **More** → confirm email shows and **Sign out** works (then sign back in).
+4. On **Live Ops** / **Drivers**, swipe the **metric pills** horizontally.
+5. Tap **Filters** to expand/collapse; confirm the summary line matches.
+6. Open **Builder** and **Training**: confirm the map fills most of the screen.
+7. Scroll so Safari's bottom toolbar collapses, then expand it again — confirm
+   the Training **Submit** bar and Builder controls stay fully tappable
+   (safe-area padding).
+8. Rotate to **landscape** and confirm the map pages remain usable.
+9. Work through `docs/mobile-admin-qa-checklist.md` for full coverage.
+
 ## Sign in
 1. Sign in with your normal LvTaxi account (email + password)
 2. In Supabase dashboard → Table editor → `drivers` → find your row → set `role = 'admin'`
