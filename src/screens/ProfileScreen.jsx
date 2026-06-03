@@ -56,7 +56,6 @@ export default function ProfileScreen() {
   const isAdmin = useSelector((s) => s.auth.isAdmin);
   const profile = useSelector((s) => s.drivers.profile);
   const status = useSelector((s) => s.drivers.status);
-  const [deleting, setDeleting] = useState(false);
 
   // Company editing
   const [editingCompany, setEditingCompany] = useState(false);
@@ -64,13 +63,16 @@ export default function ProfileScreen() {
   const [customCompany, setCustomCompany] = useState('');
   const [savingCompany, setSavingCompany] = useState(false);
 
+  // Deletion flow
+  const [requestingDeletion, setRequestingDeletion] = useState(false);
+  const [cancellingDeletion, setCancellingDeletion] = useState(false);
+
   function openCompanyEditor() {
     const current = profile?.taxi_company ?? null;
     if (current && TAXI_COMPANIES.includes(current)) {
       setCompanyChoice(current);
       setCustomCompany('');
     } else if (current) {
-      // A custom value that isn't one of the predefined options → pre-fill Other.
       setCompanyChoice(TAXI_COMPANY_OTHER);
       setCustomCompany(current);
     } else {
@@ -105,40 +107,86 @@ export default function ProfileScreen() {
     setEditingCompany(false);
   }
 
-  async function performDelete() {
-    setDeleting(true);
-    try {
-      const { error } = await supabase.functions.invoke('delete-account');
-      if (error) {
-        setDeleting(false);
-        Alert.alert(
-          'Could not delete account',
-          error.message || 'Please try again or contact support@lvtaxi.online.'
-        );
-        return;
-      }
-      await signOut(dispatch);
-    } catch (err) {
-      setDeleting(false);
-      Alert.alert(
-        'Could not delete account',
-        err?.message || 'Please try again or contact support@lvtaxi.online.'
-      );
-    }
-  }
-
-  function confirmDelete() {
+  function confirmRequestDeletion() {
     Alert.alert(
       'Delete account?',
-      'This permanently removes your account and personal data. Aggregated zone statistics that no longer identify you are retained. This cannot be undone.',
+      'Your account will be permanently deleted in 48 hours. If you sign back in before then, deletion is canceled automatically.\n\nPersonal account data will be permanently removed. Anonymized zone statistics may be retained.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: performDelete },
+        {
+          text: 'Delete my account',
+          style: 'destructive',
+          onPress: requestDeletion,
+        },
       ]
     );
   }
 
+  async function requestDeletion() {
+    setRequestingDeletion(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('request-account-deletion');
+      if (error) {
+        Alert.alert(
+          'Could not schedule deletion',
+          error.message || 'Please try again or contact support@lvtaxi.online.'
+        );
+        return;
+      }
+      // Update local profile so the pending-deletion card appears immediately.
+      if (profile) {
+        dispatch(setProfile({
+          ...profile,
+          deletion_status: 'scheduled_for_deletion',
+          deletion_scheduled_for: data?.deletion_scheduled_for ?? null,
+        }));
+      }
+      Alert.alert(
+        'Deletion scheduled',
+        'Your account will be deleted in 48 hours. Sign back in any time before then to cancel.'
+      );
+    } catch (err) {
+      Alert.alert(
+        'Could not schedule deletion',
+        err?.message || 'Please try again or contact support@lvtaxi.online.'
+      );
+    } finally {
+      setRequestingDeletion(false);
+    }
+  }
+
+  async function cancelDeletion() {
+    setCancellingDeletion(true);
+    try {
+      const { error } = await supabase.functions.invoke('cancel-account-deletion');
+      if (error) {
+        Alert.alert(
+          'Could not cancel',
+          error.message || 'Please try again or contact support@lvtaxi.online.'
+        );
+        return;
+      }
+      // Refresh profile from DB so UI reflects the updated status.
+      const { data } = await supabase
+        .from('drivers')
+        .select('*')
+        .eq('id', profile.id)
+        .maybeSingle();
+      if (data) dispatch(setProfile(data));
+      Alert.alert('Deletion canceled', 'Your account deletion request has been canceled.');
+    } catch (err) {
+      Alert.alert(
+        'Could not cancel',
+        err?.message || 'Please try again or contact support@lvtaxi.online.'
+      );
+    } finally {
+      setCancellingDeletion(false);
+    }
+  }
+
   const taxiCompany = profile?.taxi_company;
+  const deletionStatus = profile?.deletion_status ?? 'active';
+  const isScheduledForDeletion = deletionStatus === 'scheduled_for_deletion';
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
@@ -285,13 +333,39 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
+        {/* ── Pending deletion banner ─────────────────────────────────────── */}
+        {isScheduledForDeletion ? (
+          <View className="mx-4 mt-4 bg-panel border border-bad rounded-lg p-4">
+            <Text className="text-bad font-semibold mb-1">Account deletion scheduled</Text>
+            <Text className="text-muted text-sm mb-3">
+              Your account is scheduled for deletion on{' '}
+              {profile?.deletion_scheduled_for
+                ? new Date(profile.deletion_scheduled_for).toLocaleString()
+                : 'soon'}
+              . Signing in before then will automatically cancel deletion, or tap
+              below to cancel now.
+            </Text>
+            <Pressable
+              onPress={cancelDeletion}
+              disabled={cancellingDeletion}
+              className="bg-panel2 border border-border rounded-lg py-2 items-center"
+            >
+              {cancellingDeletion ? (
+                <ActivityIndicator color="#E2E8F0" />
+              ) : (
+                <Text className="text-text font-semibold">Cancel deletion</Text>
+              )}
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* Admin-only diagnostics. */}
         {isAdmin ? <TrackingDebugPanel /> : null}
 
         <View className="px-4 mt-6">
           <Pressable
             onPress={() => signOut(dispatch)}
-            disabled={deleting}
+            disabled={requestingDeletion || cancellingDeletion}
             className="bg-panel border border-bad rounded-lg py-3 items-center"
           >
             <Text className="text-bad font-semibold">Sign out</Text>
@@ -300,14 +374,19 @@ export default function ProfileScreen() {
 
         <View className="px-4 mt-3 mb-6">
           <Pressable
-            onPress={confirmDelete}
-            disabled={deleting}
-            className="rounded-lg py-3 items-center"
+            onPress={confirmRequestDeletion}
+            disabled={requestingDeletion || cancellingDeletion || isScheduledForDeletion}
           >
-            {deleting ? (
-              <ActivityIndicator color="#E5484D" />
+            {requestingDeletion ? (
+              <View className="rounded-lg py-3 items-center">
+                <ActivityIndicator color="#E5484D" />
+              </View>
             ) : (
-              <Text className="text-muted">Delete account</Text>
+              <View className="rounded-lg py-3 items-center">
+                <Text className={isScheduledForDeletion ? 'text-muted/40' : 'text-muted'}>
+                  Delete account
+                </Text>
+              </View>
             )}
           </Pressable>
         </View>

@@ -1,5 +1,6 @@
 import * as Linking from 'expo-linking';
 import * as Sentry from '@sentry/react-native';
+import { Alert } from 'react-native';
 import { store } from '../store';
 import { supabase } from './supabase';
 import {
@@ -66,6 +67,34 @@ async function fetchAndSetProfile(dispatch, userId) {
     return;
   }
   if (data) {
+    // Auto-cancel deletion if the driver signs back in during the 48-hour window.
+    if (
+      data.deletion_status === 'scheduled_for_deletion' &&
+      data.deletion_scheduled_for &&
+      new Date(data.deletion_scheduled_for) > new Date()
+    ) {
+      try {
+        const { error: cancelErr } = await supabase.functions.invoke(
+          'cancel-account-deletion'
+        );
+        if (cancelErr) {
+          console.warn('[sessionManager] auto-cancel deletion failed', cancelErr.message);
+        } else {
+          data.deletion_status = 'active';
+          data.deletion_scheduled_for = null;
+          data.deletion_cancelled_at = new Date().toISOString();
+          // Delay the alert slightly so the UI is fully mounted first.
+          setTimeout(() => {
+            Alert.alert(
+              'Deletion canceled',
+              'Your account deletion request has been canceled because you signed back in.'
+            );
+          }, 800);
+        }
+      } catch (e) {
+        console.warn('[sessionManager] auto-cancel deletion threw', e);
+      }
+    }
     dispatch(setProfile(data));
     dispatch(setIsAdmin(data.role === 'admin'));
   }
