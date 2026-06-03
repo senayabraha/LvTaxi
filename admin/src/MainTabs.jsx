@@ -8,6 +8,7 @@ const BuilderPage = lazy(() => import('./builder/BuilderPage.jsx'));
 const TrainingPage = lazy(() => import('./pages/TrainingPage.jsx'));
 const AuditPage = lazy(() => import('./pages/AuditPage.jsx'));
 const DriversPage = lazy(() => import('./pages/DriversPage.jsx'));
+const AnnouncementsPage = lazy(() => import('./pages/AnnouncementsPage.jsx'));
 const TrainingRoutesPage = lazy(() => import('./pages/TrainingRoutesPage.jsx'));
 const SystemCheckPage = lazy(() => import('./pages/SystemCheckPage.jsx'));
 
@@ -15,6 +16,7 @@ const TAB = {
   LIVE: 'live',
   ZONES: 'zones',
   DRIVERS: 'drivers',
+  ANNOUNCEMENTS: 'announcements',
   ROUTES: 'routes',
   BUILDER: 'builder',
   TRAINING: 'training',
@@ -27,6 +29,7 @@ const TABS = [
   { key: TAB.LIVE, label: 'Live Ops' },
   { key: TAB.ZONES, label: 'Zones' },
   { key: TAB.DRIVERS, label: 'Drivers' },
+  { key: TAB.ANNOUNCEMENTS, label: 'Announcements' },
   { key: TAB.ROUTES, label: 'Routes' },
   { key: TAB.BUILDER, label: 'Builder' },
   { key: TAB.TRAINING, label: 'Training' },
@@ -131,6 +134,7 @@ export default function MainTabs({ session, onSignOut }) {
           {tab === TAB.LIVE ? <LiveOpsPage /> : null}
           {tab === TAB.ZONES ? <ZonesPage onCounts={handleCounts} /> : null}
           {tab === TAB.DRIVERS ? <DriversPage /> : null}
+          {tab === TAB.ANNOUNCEMENTS ? <AnnouncementsPage /> : null}
           {tab === TAB.ROUTES ? <TrainingRoutesPage /> : null}
           {tab === TAB.BUILDER ? <BuilderPage /> : null}
           {tab === TAB.TRAINING ? <TrainingPage /> : null}
