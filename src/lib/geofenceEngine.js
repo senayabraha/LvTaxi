@@ -10,6 +10,7 @@ import { getDistanceMeters } from './locationEngine';
 import { startRecording, stopRecording } from './trajectoryRecorder';
 import { processZoneExit } from './visitProcessor';
 import { maybeSendPresenceHeartbeat } from './presenceHeartbeat';
+import { persistDriverStatus } from './backgroundTracking/backgroundTrackingService';
 import { DRIVER_STATUS, SORT_OPTIONS } from './constants';
 
 export const GEOFENCE_TASK = 'LVTAXI_GEOFENCE_TASK';
@@ -76,17 +77,27 @@ async function completeHandleEnter(zoneId, zone, driverId) {
     }
   }
 
+  // A polygon-confirmed staging-zone entry IS the "staged" signal. Promote and
+  // persist BEFORE the heartbeat: maybeSendPresenceHeartbeat() drops any write
+  // while status is passive (see isHeartbeatStatus), so without this the forced
+  // write below is silently discarded and the driver is never counted even though
+  // the UI already shows "You are here". persistDriverStatus mirrors
+  // setStatus(STAGED) into Redux and writes drivers.status / current_zone_id.
+  await persistDriverStatus(driverId, DRIVER_STATUS.STAGED, {
+    current_zone_id: zoneId,
+    work_area_exit_started_at: null,
+  });
+
   // Live counts come from active_driver_presence — no legacy counter here.
   // Force a presence write immediately on zone enter so the driver is counted
-  // without waiting for the next throttled heartbeat tick.
+  // without waiting for the next throttled heartbeat tick. Status is now STAGED,
+  // so the heartbeat guard passes and the classification is STAGING.
   const drivers = store.getState().drivers;
-  const classification =
-    drivers.status === DRIVER_STATUS.STAGED ? 'STAGING' : 'UNKNOWN';
   if (driverId && drivers.currentLat != null && drivers.currentLng != null) {
     maybeSendPresenceHeartbeat({
       driverId,
       zoneId,
-      classification,
+      classification: 'STAGING',
       lat: drivers.currentLat,
       lng: drivers.currentLng,
       speed: drivers.speed,

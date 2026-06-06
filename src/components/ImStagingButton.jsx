@@ -45,7 +45,11 @@ export default function ImStagingButton() {
           const nowIso = new Date().toISOString();
           const { error } = await supabase
             .from('drivers')
-            .update({ status: DRIVER_STATUS.STAGED, last_seen: nowIso })
+            .update({
+              status: DRIVER_STATUS.STAGED,
+              current_zone_id: zone.id,
+              last_seen: nowIso,
+            })
             .eq('id', driverId);
           if (error) console.warn('[ImStagingButton] update driver failed', error.message);
         }
