@@ -10,6 +10,7 @@ import {
   onSmoothedLocation,
   GPS_MODE,
 } from './locationEngine';
+import { WORK_AREA_EXIT_GRACE_MS } from './constants';
 
 // Tier definitions. The active tier drives the GPS sample rate and what
 // counts as "engaged" for the rest of the app.
@@ -30,10 +31,9 @@ export const TIER_CONFIG = {
 // polygon check, which handles inside-zone detection).
 const STAGING_NEAR_METERS = 200;
 
-// Work-area exit grace period: when the driver leaves the geofence we keep
-// running Tier 2 for this long before dropping to Tier 3. This avoids
-// flapping when the GPS briefly drifts outside the boundary.
-const WORK_AREA_EXIT_GRACE_MS = 20 * 60 * 1000;
+// Work-area exit grace period: imported from constants so tierManager and the
+// background tracking service use the same value (previously they disagreed:
+// 20 min here vs 30 min in backgroundTrackingService).
 
 let currentTier = TIER.THREE;
 let workAreaPolygons = [];     // [{ id, name, polygon }]
@@ -107,9 +107,14 @@ export function isInsideWorkArea(lat, lng) {
 
 export function detectStagingZone(lat, lng) {
   if (!nearbyZones || nearbyZones.length === 0) return null;
+  // Polygon match is authoritative — check all polygon zones first.
   for (const zone of nearbyZones) {
     const poly = polygonOf(zone);
     if (poly && pointInPolygon(lat, lng, poly)) return zone;
+  }
+  // Proximity fallback only for zones that have no polygon at all.
+  for (const zone of nearbyZones) {
+    if (polygonOf(zone)) continue;
     if (zone.lat != null && zone.lng != null) {
       const d = getDistanceMeters(lat, lng, zone.lat, zone.lng);
       if (d <= STAGING_NEAR_METERS) return zone;

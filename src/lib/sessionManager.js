@@ -17,11 +17,11 @@ import { stopAllBackgroundTracking } from './backgroundTracking/backgroundTracki
 import { clearDriverPresence } from './zoneStatsEngine';
 import { closeOrphanedVisits } from './visitReconciler';
 
-let hasReconciled = false;
+let reconciledUserId = null;
 
 async function reconcileOnce(userId) {
-  if (hasReconciled || !userId) return;
-  hasReconciled = true;
+  if (!userId || reconciledUserId === userId) return;
+  reconciledUserId = userId;
   try {
     await closeOrphanedVisits(userId);
   } catch (err) {
@@ -134,6 +134,7 @@ export function setupSessionListener(dispatch) {
         dispatch(setSession(session));
       } else if (event === 'SIGNED_OUT') {
         Sentry.setUser(null);
+        reconciledUserId = null;
         dispatch(clearSession());
         dispatch(clearProfile());
       } else if (event === 'USER_UPDATED') {

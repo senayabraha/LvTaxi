@@ -6,6 +6,8 @@ import { DRIVER_STATUS } from '../lib/constants';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/locationEngine';
 import { maybeSendPresenceHeartbeat } from '../lib/presenceHeartbeat';
+import { startRecording } from '../lib/trajectoryRecorder';
+import { registerActiveVisit } from '../lib/geofenceEngine';
 import { showToast } from '../lib/toast';
 
 const NEAR_METERS = 200;
@@ -29,8 +31,36 @@ export default function ImStagingButton() {
       if (!zone) return;
       setBusy(true);
       try {
+        // 1. Update Redux immediately so the heartbeat guard passes.
         dispatch(setStatus(DRIVER_STATUS.STAGED));
         dispatch(zoneEntered(zone.id));
+
+        // 2. Insert zone_visits row so exit processing has a visitId to work with.
+        let visitId = null;
+        if (driverId) {
+          const { data, error } = await supabase
+            .from('zone_visits')
+            .insert({
+              driver_id: driverId,
+              zone_id: zone.id,
+              entered_at: new Date().toISOString(),
+            })
+            .select('id')
+            .single();
+          if (error) {
+            console.warn('[ImStagingButton] insert zone_visit failed', error.message);
+          } else {
+            visitId = data.id;
+          }
+        }
+
+        // 3. Register with the geofence engine so handleExit finds this visit.
+        registerActiveVisit(zone.id, visitId);
+
+        // 4. Start trajectory recording so exit classification has GPS data.
+        startRecording(visitId, { lat: zone.lat, lng: zone.lng });
+
+        // 5. Force an immediate presence heartbeat so the driver is counted now.
         if (driverId) {
           await maybeSendPresenceHeartbeat({
             driverId,
@@ -38,21 +68,24 @@ export default function ImStagingButton() {
             classification: 'STAGING',
             lat: currentLat,
             lng: currentLng,
+            visitId,
             force: true,
           });
         }
+
+        // 6. Persist status + zone to the drivers row.
         if (driverId) {
-          const nowIso = new Date().toISOString();
           const { error } = await supabase
             .from('drivers')
             .update({
               status: DRIVER_STATUS.STAGED,
               current_zone_id: zone.id,
-              last_seen: nowIso,
+              last_seen: new Date().toISOString(),
             })
             .eq('id', driverId);
           if (error) console.warn('[ImStagingButton] update driver failed', error.message);
         }
+
         showToast(`Staged at ${zone.name}`, 'success');
       } finally {
         setBusy(false);

@@ -108,7 +108,8 @@ async function evaluateNearbyZones() {
     const d = getDistanceMeters(currentLat, currentLng, zone.lat, zone.lng);
     if (d > NEARBY_RADIUS_M) continue;
     const stat = stats[zone.id];
-    const wait = stat?.wait_time_minutes;
+    // Prefer the enriched estimate; fall back to the legacy column.
+    const wait = stat?.estimated_wait_minutes ?? stat?.wait_time_minutes;
     if (wait == null || wait >= NEARBY_WAIT_THRESHOLD_MIN) continue;
     if (await isOnCooldown(driverId, zone.id, 'nearby', NEARBY_COOLDOWN_MIN)) {
       continue;
@@ -140,7 +141,8 @@ function evaluateQueueUpdate() {
   if (!zoneId) return;
   const driverId = state.auth.session?.user?.id;
   const stat = state.zones.stats[zoneId];
-  const wait = stat?.wait_time_minutes;
+  // Prefer the enriched estimate; fall back to the legacy column.
+  const wait = stat?.estimated_wait_minutes ?? stat?.wait_time_minutes;
   if (wait == null || !driverId) return;
 
   const prev = lastWaitByZone.get(zoneId);

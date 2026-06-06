@@ -69,19 +69,24 @@ export default function HomeScreen() {
     );
   }, []);
 
+  // Geofence manager lifecycle: start once on mount, stop on unmount only.
+  // DO NOT put this in the status effect — every status change would tear down
+  // and restart geofencing, resetting activeVisits/pendingEntries mid-visit.
   useEffect(() => {
-    // Geofencing always runs as a cheap OS wake-up layer; the polygon checks in
-    // the background tasks remain the source of truth for participation.
     startGeofenceManager();
-    // Zone notifications only matter while participating (inside / leaving the
-    // work area). Passive and tracking-disabled drivers get no zone alerts.
+    return () => {
+      stopGeofenceManager();
+    };
+  }, []);
+
+  // Notification engine: only run while the driver is participating.
+  useEffect(() => {
     if (isActiveParticipationStatus(status)) {
       startNotificationEngine();
     } else {
       stopNotificationEngine();
     }
     return () => {
-      stopGeofenceManager();
       stopNotificationEngine();
     };
   }, [status]);

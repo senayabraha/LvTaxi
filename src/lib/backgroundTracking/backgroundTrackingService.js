@@ -31,6 +31,7 @@ import {
   refreshWorkAreaCache,
   isInsideWorkAreaPolygon,
   classifyPassiveDistance,
+  detectStagingZoneFromPoint,
 } from '../workAreaGeometry';
 import { clearDriverPresence } from '../zoneStatsEngine';
 import { recordTrackingDebug } from './trackingDebug';
@@ -223,16 +224,18 @@ export async function startActiveTracking() {
   // restart it. This is critical on Android: calling stopLocationUpdatesAsync then
   // startLocationUpdatesAsync from WITHIN the active task's own execution (e.g.
   // transitionToStaged called from activeLocationTask) causes the restart to fail
-  // with a platform error. The module-level currentActiveCadence may be null after
-  // a cold OS relaunch of the background process, so we trust isTaskRunning over
-  // the cached variable when checking whether to skip the restart.
-  if (alreadyRunning && (currentActiveCadence === 'active' || currentActiveCadence === null)) {
-    currentActiveCadence = 'active';
+  // with a platform error.
+  // NOTE: when currentActiveCadence is null (cold OS relaunch, module state cleared)
+  // we do NOT skip the restart — the task may have been left running at exit_grace
+  // cadence (60s) and we must upgrade it to active cadence (5s). Accepting null as
+  // a "good enough" cadence caused 12x slower location updates after cold relaunch.
+  if (alreadyRunning && currentActiveCadence === 'active') {
     recordTrackingDebug({ lastTask: 'active' });
     return true;
   }
 
-  // Not running or running at the wrong cadence — stop passive, then (re)start.
+  // Not running, running at wrong cadence, or cadence unknown after cold relaunch —
+  // stop passive, then (re)start at the correct active cadence.
   await stopPassiveTracking();
   if (alreadyRunning) await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
 
@@ -260,13 +263,17 @@ export async function startExitGraceTracking() {
   // Already running at exit_grace cadence — no restart needed.
   if (alreadyRunning && currentActiveCadence === 'exit_grace') return true;
 
-  // Running at active cadence from within the active task itself (cold module
-  // state): accept it rather than stopping and restarting from inside the task.
-  if (alreadyRunning && currentActiveCadence === null) {
+  // If called from WITHIN the active task (currentActiveCadence === 'active'),
+  // stopping and restarting the task from its own execution crashes on Android.
+  // Accept the active cadence rather than restarting — the next active-task tick
+  // will call startExitGraceTracking again where a proper restart is safe.
+  if (alreadyRunning && currentActiveCadence === 'active') {
     currentActiveCadence = 'exit_grace';
     return true;
   }
 
+  // All other cases (cold relaunch with null cadence, or task not running):
+  // stop passive, then start exit_grace.
   await stopPassiveTracking();
   if (alreadyRunning) await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
 
@@ -343,6 +350,17 @@ export async function reconcileTrackingOnAppLaunch() {
   if (pos?.coords) {
     const { latitude: lat, longitude: lng } = pos.coords;
     if (isInsideWorkAreaPolygon(lat, lng)) {
+      // Check for a staging zone first: a driver relaunching while staged must
+      // not be downgraded to ACTIVE just because reconcile runs before the active
+      // task fires its first tick.
+      const zone = detectStagingZoneFromPoint(lat, lng);
+      if (zone) {
+        const { transitionToStaged } = await import('../driverStatusTransitions');
+        await transitionToStaged(driverId, zone.id, { source: 'reconcileTrackingOnAppLaunch' });
+        await startActiveTracking();
+        recordTrackingDebug({ lastStatus: DRIVER_STATUS.STAGED, insideWorkArea: true, detectedZoneId: zone.id });
+        return;
+      }
       await persistDriverStatus(driverId, DRIVER_STATUS.ACTIVE, {
         work_area_entry_time: new Date().toISOString(),
         work_area_exit_started_at: null,

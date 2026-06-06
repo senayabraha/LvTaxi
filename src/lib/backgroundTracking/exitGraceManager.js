@@ -108,8 +108,9 @@ export async function evaluateExitGrace(driverId, latestLocation) {
 }
 
 // Driver re-entered the work area within the grace window: cancel the grace.
+// Always clears the Supabase column — do NOT gate on Redux state because after a
+// cold OS relaunch the Redux store is empty even if the DB still holds a timestamp.
 export async function clearExitGrace(driverId) {
-  if (!store.getState().drivers.workAreaExitStartedAt) return;
   store.dispatch(clearWorkAreaExitStartedAt());
   if (driverId) {
     const { error } = await supabase

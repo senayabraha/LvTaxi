@@ -1,17 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { Pressable, Text, Animated, Easing } from 'react-native';
-import { useDispatch, useSelector } from 'react-redux';
-import { setStatus } from '../store/driversSlice';
+import { useSelector } from 'react-redux';
 import { DRIVER_STATUS } from '../lib/constants';
-import { supabase } from '../lib/supabase';
 import {
-  startLocationTracking,
-  setGPSMode,
-  GPS_MODE,
-} from '../lib/locationEngine';
-import { startGeofenceManager } from '../lib/geofenceEngine';
-import { clearDriverPresence } from '../lib/zoneStatsEngine';
-import { resetPresenceHeartbeat } from '../lib/presenceHeartbeat';
+  enableTrackingFromUI,
+  disableTrackingFromUI,
+} from '../lib/backgroundTracking/backgroundTrackingService';
 
 const GREEN = '#22C55E';
 const GREY = '#4B5563';
@@ -21,11 +15,10 @@ const DOT_SIZE = 32;
 const DOT_INSET = 4;
 
 export default function DriverToggle() {
-  const dispatch = useDispatch();
   const status = useSelector((s) => s.drivers.status);
-  const userId = useSelector((s) => s.auth.session?.user?.id);
+  const trackingEnabled = useSelector((s) => s.drivers.trackingEnabled);
 
-  const isOn = status === DRIVER_STATUS.ACTIVE || status === DRIVER_STATUS.STAGED;
+  const isOn = trackingEnabled && status !== DRIVER_STATUS.TRACKING_DISABLED;
 
   const anim = useRef(new Animated.Value(isOn ? 1 : 0)).current;
 
@@ -48,37 +41,14 @@ export default function DriverToggle() {
   });
 
   async function onPress() {
-    const nextStatus = isOn ? DRIVER_STATUS.OFF_DUTY : DRIVER_STATUS.ACTIVE;
-    dispatch(setStatus(nextStatus));
-
     try {
-      // Off-duty keeps a low-power GPS watch for geofencing/work-area only —
-      // the driver is cleared from live presence counts (see clearDriverPresence).
-      // Notifications are suppressed elsewhere when off-duty.
-      if (nextStatus === DRIVER_STATUS.OFF_DUTY) {
-        // Drop out of live counts immediately rather than waiting for the TTL.
-        if (userId) {
-          await clearDriverPresence(userId);
-        }
-        resetPresenceHeartbeat();
-        await startLocationTracking(GPS_MODE.PASSIVE);
-        await setGPSMode(GPS_MODE.PASSIVE);
-        startGeofenceManager();
+      if (isOn) {
+        await disableTrackingFromUI();
       } else {
-        await startLocationTracking(GPS_MODE.HIGH);
-        await setGPSMode(GPS_MODE.HIGH);
-        startGeofenceManager();
+        await enableTrackingFromUI();
       }
     } catch (err) {
       console.warn('[DriverToggle] tracking transition failed', err);
-    }
-
-    if (userId) {
-      const { error } = await supabase
-        .from('drivers')
-        .update({ status: nextStatus, last_seen: new Date().toISOString() })
-        .eq('id', userId);
-      if (error) console.warn('[DriverToggle] update failed', error.message);
     }
   }
 
@@ -102,7 +72,7 @@ export default function DriverToggle() {
             textAlign: isOn ? 'left' : 'right',
           }}
         >
-          {isOn ? '🟢 Driving' : '⚫ Off (still tracked)'}
+          {isOn ? '🟢 Tracking On' : '⚫ Tracking Off'}
         </Text>
         <Animated.View
           style={{

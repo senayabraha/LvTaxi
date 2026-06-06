@@ -422,6 +422,12 @@ async function applyGeofences(top20Zones) {
   }
 }
 
+// Allow external callers (e.g. ImStagingButton) to register a manually-opened
+// visit so handleExit can find the visitId and process the zone exit correctly.
+export function registerActiveVisit(zoneId, visitId) {
+  activeVisits.set(zoneId, visitId);
+}
+
 export function updateActiveGeofences(top20Zones) {
   const elapsed = Date.now() - lastGeofenceUpdateAt;
   if (elapsed >= MIN_GEOFENCE_REFRESH_MS) {
