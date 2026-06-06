@@ -18,8 +18,6 @@
 
 import * as TaskManager from 'expo-task-manager';
 import * as Sentry from '@sentry/react-native';
-import { store } from '../../store';
-import { setCurrentZone, setStatus } from '../../store/driversSlice';
 import { DRIVER_STATUS } from '../constants';
 import {
   refreshWorkAreaCache,
@@ -28,13 +26,15 @@ import {
   getWorkAreaPolygonCount,
 } from '../workAreaGeometry';
 import { maybeSendPresenceHeartbeat } from '../presenceHeartbeat';
+import {
+  transitionToActive,
+  transitionToStaged,
+} from '../driverStatusTransitions';
 import { LVTAXI_ACTIVE_LOCATION_TASK } from './trackingTaskNames';
 import { recordTrackingDebug } from './trackingDebug';
 import {
   getSessionUserId,
   getLatestLocation,
-  persistDriverStatus,
-  safeDispatch,
   stopActiveTracking,
 } from './backgroundTrackingService';
 import { evaluateExitGrace, clearExitGrace } from './exitGraceManager';
@@ -77,24 +77,14 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
   await clearExitGrace(driverId);
 
   const zone = detectStagingZoneFromPoint(lat, lng);
-  const desiredStatus = zone ? DRIVER_STATUS.STAGED : DRIVER_STATUS.ACTIVE;
   const desiredZone = zone ? zone.id : null;
 
-  const prevStatus = store.getState().drivers.status;
-  const prevZone = store.getState().drivers.currentZoneId ?? null;
-  const changed = prevStatus !== desiredStatus || prevZone !== desiredZone;
-
-  safeDispatch(setCurrentZone(desiredZone));
-
-  if (changed) {
-    // Only touch the drivers row on a real transition — not every 5s fix.
-    await persistDriverStatus(driverId, desiredStatus, {
-      current_zone_id: desiredZone,
-      work_area_exit_started_at: null,
-    });
+  // Centralized transition: sets status + zone atomically in Redux and only
+  // writes the drivers row on a real status/zone change (not every 5s fix).
+  if (zone) {
+    await transitionToStaged(driverId, zone.id);
   } else {
-    // Keep Redux in sync without a Supabase write.
-    safeDispatch(setStatus(desiredStatus));
+    await transitionToActive(driverId);
   }
 
   // Throttled (~25s) heartbeat. STAGED carries zone_id (counted); ACTIVE sends a
@@ -114,7 +104,7 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
     insideWorkArea: true,
     detectedZoneId: desiredZone,
     detectedZoneName: zone ? zone.name : null,
-    lastStatus: desiredStatus,
+    lastStatus: zone ? DRIVER_STATUS.STAGED : DRIVER_STATUS.ACTIVE,
     lastHeartbeatAt: sent ? Date.now() : undefined,
   });
 });

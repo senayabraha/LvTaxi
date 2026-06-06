@@ -14,19 +14,17 @@
 // the 90s TTL. The light GPS task keeps running only to detect re-entry.
 
 import { store } from '../../store';
-import {
-  setStatus,
-  setWorkAreaExitStartedAt,
-  clearWorkAreaExitStartedAt,
-  setCurrentZone,
-} from '../../store/driversSlice';
+import { clearWorkAreaExitStartedAt } from '../../store/driversSlice';
 import { DRIVER_STATUS, WORK_AREA_EXIT_GRACE_MS } from '../constants';
 import { supabase } from '../supabase';
 import { clearDriverPresence } from '../zoneStatsEngine';
 import { classifyPassiveDistance } from '../workAreaGeometry';
+import {
+  transitionToExitGrace,
+  transitionToPassive,
+} from '../driverStatusTransitions';
 import { recordTrackingDebug } from './trackingDebug';
 import {
-  persistDriverStatus,
   startPassiveTracking,
   startExitGraceTracking,
   stopActiveTracking,
@@ -54,15 +52,9 @@ async function getExitStartedAt(driverId) {
 // Begin the grace period: stamp the start time, drop out of staging math now, and
 // switch the GPS task to the lighter exit-grace cadence.
 export async function startExitGrace(driverId, latestLocation) {
-  const startedIso = new Date().toISOString();
-  store.dispatch(setWorkAreaExitStartedAt(Date.now()));
-  store.dispatch(setCurrentZone(null));
-  store.dispatch(setStatus(DRIVER_STATUS.EXIT_GRACE));
-
-  await persistDriverStatus(driverId, DRIVER_STATUS.EXIT_GRACE, {
-    work_area_exit_started_at: startedIso,
-    current_zone_id: null,
-  });
+  // Atomically set EXIT_GRACE + clear the zone + stamp the start time (Redux +
+  // Supabase) so we can't be left "in a zone" while leaving the work area.
+  const startedMs = await transitionToExitGrace(driverId, { startedAt: Date.now() });
 
   // Not counted while in grace — clear immediately rather than waiting for TTL.
   if (driverId) await clearDriverPresence(driverId);
@@ -71,7 +63,7 @@ export async function startExitGrace(driverId, latestLocation) {
   recordTrackingDebug({
     lastStatus: DRIVER_STATUS.EXIT_GRACE,
     insideWorkArea: false,
-    workAreaExitStartedAt: Date.now(),
+    workAreaExitStartedAt: startedMs,
     detectedZoneId: null,
     detectedZoneName: null,
   });
@@ -92,8 +84,9 @@ export async function evaluateExitGrace(driverId, latestLocation) {
     return store.getState().drivers.status;
   }
 
-  // Still within the grace window — keep EXIT_GRACE + light tracking.
-  store.dispatch(setStatus(DRIVER_STATUS.EXIT_GRACE));
+  // Still within the grace window — keep EXIT_GRACE + light tracking. Reusing the
+  // resolved startedAt means we preserve the original window and write nothing.
+  await transitionToExitGrace(driverId, { startedAt });
   await startExitGraceTracking();
   recordTrackingDebug({
     lastStatus: DRIVER_STATUS.EXIT_GRACE,
@@ -129,14 +122,10 @@ export async function completeExitToPassive(driverId, latestLocation) {
       : DRIVER_STATUS.PASSIVE_FAR;
 
   if (driverId) await clearDriverPresence(driverId);
-  store.dispatch(clearWorkAreaExitStartedAt());
-  store.dispatch(setCurrentZone(null));
-  store.dispatch(setStatus(mode));
 
-  await persistDriverStatus(driverId, mode, {
-    work_area_exit_started_at: null,
-    work_area_exit_time: new Date().toISOString(),
-    current_zone_id: null,
+  // Atomically drop to passive: clears zone + exit-grace stamp, records exit time.
+  await transitionToPassive(driverId, mode, {
+    workAreaExitTime: new Date().toISOString(),
   });
 
   await stopActiveTracking();

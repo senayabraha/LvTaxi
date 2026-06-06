@@ -33,6 +33,11 @@ import {
   classifyPassiveDistance,
 } from '../workAreaGeometry';
 import { clearDriverPresence } from '../zoneStatsEngine';
+import {
+  transitionToTrackingDisabled,
+  transitionToActive,
+  transitionToPassive,
+} from '../driverStatusTransitions';
 import { recordTrackingDebug } from './trackingDebug';
 
 // Remember the last options we started a task with so we only restart when the
@@ -265,8 +270,8 @@ export async function reconcileTrackingOnAppLaunch() {
 
   // 1. No permission → tracking disabled, everything stopped.
   if (!(await hasPermissions())) {
-    safeDispatch(setStatus(DRIVER_STATUS.TRACKING_DISABLED));
     await stopAllBackgroundTracking();
+    await transitionToTrackingDisabled(driverId, 'no-permission');
     recordTrackingDebug({ lastStatus: DRIVER_STATUS.TRACKING_DISABLED });
     return;
   }
@@ -274,9 +279,11 @@ export async function reconcileTrackingOnAppLaunch() {
   // 2. Tracking explicitly disabled (user toggle / inactive account).
   const trackingEnabled = state.drivers.trackingEnabled !== false;
   if (!trackingEnabled) {
-    safeDispatch(setStatus(DRIVER_STATUS.TRACKING_DISABLED));
     await stopAllBackgroundTracking();
     if (driverId) await clearDriverPresence(driverId);
+    await transitionToTrackingDisabled(driverId, 'tracking-disabled', {
+      trackingEnabled: false,
+    });
     recordTrackingDebug({ lastStatus: DRIVER_STATUS.TRACKING_DISABLED });
     return;
   }
@@ -299,9 +306,8 @@ export async function reconcileTrackingOnAppLaunch() {
   if (pos?.coords) {
     const { latitude: lat, longitude: lng } = pos.coords;
     if (isInsideWorkAreaPolygon(lat, lng)) {
-      await persistDriverStatus(driverId, DRIVER_STATUS.ACTIVE, {
-        work_area_entry_time: new Date().toISOString(),
-        work_area_exit_started_at: null,
+      await transitionToActive(driverId, {
+        workAreaEntryTime: new Date().toISOString(),
       });
       await startActiveTracking();
       recordTrackingDebug({ lastStatus: DRIVER_STATUS.ACTIVE, insideWorkArea: true });
@@ -316,14 +322,14 @@ export async function reconcileTrackingOnAppLaunch() {
       return;
     }
     const mode = classifyPassiveDistance(lat, lng);
-    await persistDriverStatus(driverId, mode);
+    await transitionToPassive(driverId, mode);
     await startPassiveTracking(mode);
     recordTrackingDebug({ lastStatus: mode, insideWorkArea: false });
     return;
   }
 
   // 4. No position yet — fail safe to passive far (never auto-activate blind).
-  await persistDriverStatus(driverId, DRIVER_STATUS.PASSIVE_FAR);
+  await transitionToPassive(driverId, DRIVER_STATUS.PASSIVE_FAR);
   await startPassiveTracking(DRIVER_STATUS.PASSIVE_FAR);
   recordTrackingDebug({ lastStatus: DRIVER_STATUS.PASSIVE_FAR });
 }
@@ -351,9 +357,8 @@ export async function disableTrackingFromUI() {
   await stopAllBackgroundTracking();
   if (driverId) {
     await clearDriverPresence(driverId);
-    await persistDriverStatus(driverId, DRIVER_STATUS.TRACKING_DISABLED, {
-      tracking_enabled: false,
-      current_zone_id: null,
+    await transitionToTrackingDisabled(driverId, 'user-disabled', {
+      trackingEnabled: false,
     });
   }
   recordTrackingDebug({ lastStatus: DRIVER_STATUS.TRACKING_DISABLED });

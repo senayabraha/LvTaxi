@@ -1,17 +1,16 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, Pressable, Modal, FlatList } from 'react-native';
-import { useDispatch, useSelector } from 'react-redux';
-import { setStatus, zoneEntered } from '../store/driversSlice';
+import { useSelector } from 'react-redux';
 import { DRIVER_STATUS } from '../lib/constants';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/locationEngine';
 import { maybeSendPresenceHeartbeat } from '../lib/presenceHeartbeat';
+import { transitionToStaged } from '../lib/driverStatusTransitions';
 import { showToast } from '../lib/toast';
 
 const NEAR_METERS = 200;
 
 export default function ImStagingButton() {
-  const dispatch = useDispatch();
   const status = useSelector((s) => s.drivers.status);
   const driverId = useSelector((s) => s.auth.session?.user?.id);
   const currentLat = useSelector((s) => s.drivers.currentLat);
@@ -29,8 +28,10 @@ export default function ImStagingButton() {
       if (!zone) return;
       setBusy(true);
       try {
-        dispatch(setStatus(DRIVER_STATUS.STAGED));
-        dispatch(zoneEntered(zone.id));
+        // Single funnel: sets status=STAGED + currentZoneId + zone bookkeeping in
+        // Redux AND writes the drivers row (force so a manual confirm always
+        // persists). Then the forced heartbeat makes the driver count immediately.
+        await transitionToStaged(driverId, zone.id, { force: true });
         if (driverId) {
           await maybeSendPresenceHeartbeat({
             driverId,
@@ -41,18 +42,6 @@ export default function ImStagingButton() {
             force: true,
           });
         }
-        if (driverId) {
-          const nowIso = new Date().toISOString();
-          const { error } = await supabase
-            .from('drivers')
-            .update({
-              status: DRIVER_STATUS.STAGED,
-              current_zone_id: zone.id,
-              last_seen: nowIso,
-            })
-            .eq('id', driverId);
-          if (error) console.warn('[ImStagingButton] update driver failed', error.message);
-        }
         showToast(`Staged at ${zone.name}`, 'success');
       } finally {
         setBusy(false);
@@ -60,7 +49,7 @@ export default function ImStagingButton() {
         setPickerZones(null);
       }
     },
-    [dispatch, driverId, currentLat, currentLng]
+    [driverId, currentLat, currentLng]
   );
 
   const onPress = useCallback(async () => {

@@ -118,6 +118,33 @@ const driversSlice = createSlice({
     setGpsTier(state, action) {
       state.gpsTier = action.payload;
     },
+    // Atomic participation-state setter. Sets status + zone bookkeeping in ONE
+    // dispatch so they can never diverge (the bug where status=passive_far while
+    // currentZoneId is still a zone). Only the keys present in the payload are
+    // applied; pass explicit `null` to clear. Used by driverStatusTransitions.js.
+    setDriverParticipationState(state, action) {
+      const p = action.payload ?? {};
+      if (p.status !== undefined) {
+        // Ignore unknown statuses rather than corrupting the machine.
+        if (!VALID_STATUSES.has(p.status)) return;
+        state.status = p.status;
+        // Mirror existing setStatus bookkeeping for work-area entry.
+        if (p.status === DRIVER_STATUS.ACTIVE || p.status === DRIVER_STATUS.STAGED) {
+          if (!state.workAreaEntryTime) state.workAreaEntryTime = Date.now();
+        }
+      }
+      if (p.currentZoneId !== undefined) {
+        state.currentZoneId = p.currentZoneId;
+        state.isInsideZone =
+          p.isInsideZone !== undefined ? !!p.isInsideZone : !!p.currentZoneId;
+      } else if (p.isInsideZone !== undefined) {
+        state.isInsideZone = !!p.isInsideZone;
+      }
+      if (p.zoneEntryTime !== undefined) state.zoneEntryTime = p.zoneEntryTime;
+      if (p.workAreaExitStartedAt !== undefined) {
+        state.workAreaExitStartedAt = p.workAreaExitStartedAt;
+      }
+    },
   },
 });
 
@@ -134,6 +161,7 @@ export const {
   zoneEntered,
   zoneExited,
   setGpsTier,
+  setDriverParticipationState,
 } = driversSlice.actions;
 
 export default driversSlice.reducer;

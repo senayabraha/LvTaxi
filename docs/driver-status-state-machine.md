@@ -1,6 +1,12 @@
 # LV Taxi — Driver Status State Machine
 
 > Analysis-only. The most important deliverable. Includes the Samsung Terminal 1 case study.
+>
+> **Update (implementation):** a centralized transition helper now exists —
+> `src/lib/driverStatusTransitions.js` — that keeps status + zone consistent at the
+> updated call sites. See `status-transition-helper.md`. The §1 "no central state
+> machine" finding below describes the pre-helper state; remaining un-converted
+> sites are listed in the helper doc.
 
 ---
 

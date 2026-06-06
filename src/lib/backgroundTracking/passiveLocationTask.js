@@ -15,7 +15,6 @@
 import * as TaskManager from 'expo-task-manager';
 import * as Sentry from '@sentry/react-native';
 import { store } from '../../store';
-import { setCurrentZone, setStatus } from '../../store/driversSlice';
 import { DRIVER_STATUS } from '../constants';
 import {
   refreshWorkAreaCache,
@@ -25,13 +24,16 @@ import {
   getWorkAreaPolygonCount,
 } from '../workAreaGeometry';
 import { maybeSendPresenceHeartbeat } from '../presenceHeartbeat';
+import {
+  transitionToActive,
+  transitionToStaged,
+  transitionToPassive,
+} from '../driverStatusTransitions';
 import { LVTAXI_PASSIVE_LOCATION_TASK } from './trackingTaskNames';
 import { recordTrackingDebug } from './trackingDebug';
 import {
   getSessionUserId,
   getLatestLocation,
-  persistDriverStatus,
-  safeDispatch,
   startActiveTracking,
   startPassiveTracking,
   stopPassiveTracking,
@@ -71,13 +73,15 @@ TaskManager.defineTask(LVTAXI_PASSIVE_LOCATION_TASK, async ({ data, error }) => 
     // ── Auto-activate ────────────────────────────────────────────────────────
     const zone = detectStagingZoneFromPoint(lat, lng);
     const status = zone ? DRIVER_STATUS.STAGED : DRIVER_STATUS.ACTIVE;
+    const entryIso = new Date().toISOString();
 
-    safeDispatch(setCurrentZone(zone ? zone.id : null));
-    await persistDriverStatus(driverId, status, {
-      current_zone_id: zone ? zone.id : null,
-      work_area_entry_time: new Date().toISOString(),
-      work_area_exit_started_at: null,
-    });
+    // Centralized transition keeps Redux (status + zone) and Supabase in lockstep
+    // so we can never end up passive-with-a-zone.
+    if (zone) {
+      await transitionToStaged(driverId, zone.id, { workAreaEntryTime: entryIso });
+    } else {
+      await transitionToActive(driverId, { workAreaEntryTime: entryIso });
+    }
 
     // Hand the OS watch over to the active task (active cadence + heartbeat).
     await stopPassiveTracking();
@@ -111,12 +115,12 @@ TaskManager.defineTask(LVTAXI_PASSIVE_LOCATION_TASK, async ({ data, error }) => 
   // ── Still outside: reclassify FAR vs NEAR, no heartbeat, not counted ────────
   const mode = classifyPassiveDistance(lat, lng);
   const prev = store.getState().drivers.status;
+  // transitionToPassive clears any stale zone and only writes Supabase when the
+  // status/zone actually changed (so FAR→FAR ticks stay write-free).
+  await transitionToPassive(driverId, mode);
   if (prev !== mode) {
-    await persistDriverStatus(driverId, mode);
     // Restart the passive watch only if the cadence (FAR↔NEAR) actually changed.
     await startPassiveTracking(mode);
-  } else {
-    safeDispatch(setStatus(mode));
   }
 
   recordTrackingDebug({
