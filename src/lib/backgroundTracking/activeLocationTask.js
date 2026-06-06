@@ -95,6 +95,7 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
     if (needsTransition) {
       await transitionToStaged(driverId, zone.id, {
         source: 'activeLocationTask',
+        skipTaskRestart: true,
       });
     }
 
@@ -155,6 +156,7 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
     // Only touch the drivers row on a real transition — not every 5s fix.
     await transitionToActive(driverId, {
       source: 'activeLocationTask',
+      skipTaskRestart: true,
     });
   } else {
     // Keep Redux in sync without a Supabase write.

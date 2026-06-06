@@ -17,6 +17,10 @@ function safeDispatch(action) {
   }
 }
 
+// opts.skipTaskRestart = true  → caller is already running inside the active
+// background task. Stopping + restarting the task from within its own execution
+// crashes on Android. The task is already running at the right cadence, so skip
+// the startActiveTracking call entirely. The status/DB write still happens.
 export async function transitionToStaged(driverId, zoneId, opts = {}) {
   const payload = {
     status: DRIVER_STATUS.STAGED,
@@ -52,7 +56,9 @@ export async function transitionToStaged(driverId, zoneId, opts = {}) {
     return { ok: false, error };
   }
 
-  await ensureActiveTracking('transitionToStaged');
+  if (!opts.skipTaskRestart) {
+    await ensureActiveTracking('transitionToStaged');
+  }
   return { ok: true };
 }
 
@@ -92,7 +98,9 @@ export async function transitionToActive(driverId, opts = {}) {
     return { ok: false, error };
   }
 
-  await ensureActiveTracking('transitionToActive');
+  if (!opts.skipTaskRestart) {
+    await ensureActiveTracking('transitionToActive');
+  }
   return { ok: true };
 }
 

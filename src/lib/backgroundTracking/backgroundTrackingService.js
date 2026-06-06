@@ -237,7 +237,15 @@ export async function startActiveTracking() {
   // Not running, running at wrong cadence, or cadence unknown after cold relaunch —
   // stop passive, then (re)start at the correct active cadence.
   await stopPassiveTracking();
-  if (alreadyRunning) await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
+  if (alreadyRunning) {
+    // Best-effort stop — ignore failure. startLocationUpdatesAsync will replace
+    // the existing registration even if stop didn't cleanly fire on some Android OEMs.
+    try {
+      await Location.stopLocationUpdatesAsync(LVTAXI_ACTIVE_LOCATION_TASK);
+    } catch (stopErr) {
+      console.warn('[backgroundTracking] stopActiveTask failed (non-fatal)', stopErr);
+    }
+  }
 
   try {
     await Location.startLocationUpdatesAsync(
