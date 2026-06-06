@@ -17,6 +17,14 @@ let debugState = {
   workAreaExitStartedAt: null,
   lastStatus: null,
   workAreaPolygonCount: null,
+  geofenceLastEvent: null,
+  geofenceEventAt: null,
+  geofenceZoneId: null,
+  geofenceZoneName: null,
+  geofenceVisitId: null,
+  geofenceTransitionOk: null,
+  geofenceHeartbeatAttempted: null,
+  geofenceHeartbeatSent: null,
 };
 
 const listeners = new Set();
