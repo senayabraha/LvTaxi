@@ -15,7 +15,6 @@
 import * as TaskManager from 'expo-task-manager';
 import * as Sentry from '@sentry/react-native';
 import { store } from '../../store';
-import { setCurrentZone, setStatus } from '../../store/driversSlice';
 import { DRIVER_STATUS } from '../constants';
 import {
   refreshWorkAreaCache,
@@ -25,15 +24,16 @@ import {
   getWorkAreaPolygonCount,
 } from '../workAreaGeometry';
 import { maybeSendPresenceHeartbeat } from '../presenceHeartbeat';
+import {
+  transitionToActive,
+  transitionToPassive,
+  transitionToStaged,
+} from '../driverStatusTransitions';
 import { LVTAXI_PASSIVE_LOCATION_TASK } from './trackingTaskNames';
 import { recordTrackingDebug } from './trackingDebug';
 import {
   getSessionUserId,
   getLatestLocation,
-  persistDriverStatus,
-  safeDispatch,
-  startActiveTracking,
-  startPassiveTracking,
   stopPassiveTracking,
 } from './backgroundTrackingService';
 
@@ -49,6 +49,7 @@ TaskManager.defineTask(LVTAXI_PASSIVE_LOCATION_TASK, async ({ data, error }) => 
   const loc = getLatestLocation(data);
   if (!loc?.coords) return;
   const { latitude: lat, longitude: lng, speed, accuracy, heading } = loc.coords;
+  const statusBefore = store.getState().drivers.status;
 
   // No session → nothing to track. Stop the passive watch so a logged-out app
   // isn't burning the OS background slot.
@@ -61,35 +62,81 @@ TaskManager.defineTask(LVTAXI_PASSIVE_LOCATION_TASK, async ({ data, error }) => 
   await refreshWorkAreaCache();
   recordTrackingDebug({
     lastBackgroundLocationAt: Date.now(),
+    lastPassiveTaskRunAt: Date.now(),
     lastBackgroundLat: lat,
     lastBackgroundLng: lng,
     lastTask: 'passive',
+    lastTaskStatusBefore: statusBefore,
     workAreaPolygonCount: getWorkAreaPolygonCount(),
   });
 
-  if (isInsideWorkAreaPolygon(lat, lng)) {
-    // ── Auto-activate ────────────────────────────────────────────────────────
-    const zone = detectStagingZoneFromPoint(lat, lng);
-    const status = zone ? DRIVER_STATUS.STAGED : DRIVER_STATUS.ACTIVE;
+  const insideWorkArea = isInsideWorkAreaPolygon(lat, lng);
+  const zone = detectStagingZoneFromPoint(lat, lng);
 
-    safeDispatch(setCurrentZone(zone ? zone.id : null));
-    await persistDriverStatus(driverId, status, {
-      current_zone_id: zone ? zone.id : null,
-      work_area_entry_time: new Date().toISOString(),
-      work_area_exit_started_at: null,
+  if (zone) {
+    const reason = insideWorkArea
+      ? 'staging_zone_detected_inside_work_area'
+      : 'staging_zone_overrode_work_area_outside';
+    const status = DRIVER_STATUS.STAGED;
+    recordTrackingDebug({
+      insideWorkArea,
+      detectedZoneId: zone.id,
+      detectedZoneName: zone.name,
+      lastTaskDesiredStatus: status,
+      lastTaskDecisionReason: reason,
     });
 
-    // Hand the OS watch over to the active task (active cadence + heartbeat).
-    await stopPassiveTracking();
-    await startActiveTracking();
+    await transitionToStaged(driverId, zone.id, {
+      source: 'passiveLocationTask',
+    });
+
+    const sent = await maybeSendPresenceHeartbeat({
+      driverId,
+      zoneId: zone.id,
+      classification: 'STAGING',
+      lat,
+      lng,
+      speed,
+      accuracy,
+      heading,
+      force: true,
+    });
+
+    recordTrackingDebug({
+      insideWorkArea,
+      detectedZoneId: zone.id,
+      detectedZoneName: zone.name,
+      lastStatus: status,
+      lastTaskStatusAfter: store.getState().drivers.status,
+      lastTaskDecisionReason: reason,
+      ...(sent ? { lastHeartbeatAt: Date.now() } : {}),
+    });
+    return;
+  }
+
+  if (insideWorkArea) {
+    // ── Auto-activate ────────────────────────────────────────────────────────
+    const status = DRIVER_STATUS.ACTIVE;
+    recordTrackingDebug({
+      insideWorkArea: true,
+      detectedZoneId: null,
+      detectedZoneName: null,
+      lastTaskDesiredStatus: status,
+      lastTaskDecisionReason: 'inside_work_area_no_staging_zone',
+    });
+
+    await transitionToActive(driverId, {
+      source: 'passiveLocationTask',
+      workAreaEntryTime: new Date().toISOString(),
+    });
 
     // Force one immediate heartbeat so the driver appears in live data without
     // waiting a full active cycle. (ACTIVE → not counted in a queue; STAGED →
     // counted via STAGING classification.)
     const sent = await maybeSendPresenceHeartbeat({
       driverId,
-      zoneId: zone ? zone.id : null,
-      classification: zone ? 'STAGING' : 'ACTIVE',
+      zoneId: null,
+      classification: 'ACTIVE',
       lat,
       lng,
       speed,
@@ -100,10 +147,11 @@ TaskManager.defineTask(LVTAXI_PASSIVE_LOCATION_TASK, async ({ data, error }) => 
 
     recordTrackingDebug({
       insideWorkArea: true,
-      detectedZoneId: zone ? zone.id : null,
-      detectedZoneName: zone ? zone.name : null,
+      detectedZoneId: null,
+      detectedZoneName: null,
       lastStatus: status,
-      lastHeartbeatAt: sent ? Date.now() : undefined,
+      lastTaskStatusAfter: store.getState().drivers.status,
+      ...(sent ? { lastHeartbeatAt: Date.now() } : {}),
     });
     return;
   }
@@ -111,18 +159,22 @@ TaskManager.defineTask(LVTAXI_PASSIVE_LOCATION_TASK, async ({ data, error }) => 
   // ── Still outside: reclassify FAR vs NEAR, no heartbeat, not counted ────────
   const mode = classifyPassiveDistance(lat, lng);
   const prev = store.getState().drivers.status;
-  if (prev !== mode) {
-    await persistDriverStatus(driverId, mode);
-    // Restart the passive watch only if the cadence (FAR↔NEAR) actually changed.
-    await startPassiveTracking(mode);
-  } else {
-    safeDispatch(setStatus(mode));
-  }
+  recordTrackingDebug({
+    lastTaskDesiredStatus: mode,
+    lastTaskStatusBefore: prev,
+    lastTaskDecisionReason: 'outside_work_area_no_staging_zone',
+  });
+  await transitionToPassive(driverId, mode, {
+    source: 'passiveLocationTask',
+    clearPresence: false,
+  });
 
   recordTrackingDebug({
     insideWorkArea: false,
     detectedZoneId: null,
     detectedZoneName: null,
     lastStatus: mode,
+    lastTaskStatusAfter: store.getState().drivers.status,
+    lastTaskDecisionReason: 'outside_work_area_no_staging_zone',
   });
 });

@@ -21,6 +21,35 @@ It then persists the `drivers` row:
 - `work_area_exit_started_at = null`
 - `last_seen = now`
 
+After a successful persisted transition it requests active background tracking.
+`startActiveTracking()` stops the passive task first, then starts the active
+location task. This is required because staged presence only stays count-eligible
+while recurring heartbeats keep `driver_presence.last_ping_at` inside the live
+TTL.
+
+Debug fields written by this handoff include:
+
+- `requestedTrackingMode = active`
+- `trackingModeAfterTransition`
+- `activeTaskStartRequestedAt`
+- `passiveTaskStopRequestedAt`
+- `activeTaskStartError`
+- `passiveTaskStopError`
+
+## `transitionToActive(driverId, opts)`
+
+Use this helper when the driver is inside the work area but not inside a staging
+zone. It clears the zone, persists `drivers.status = active`, and requests active
+background tracking so the active heartbeat path continues.
+
+## `transitionToPassive(driverId, status, opts)`
+
+Use this helper when the driver is truly outside the work area and not inside a
+staging zone. It clears Redux/current DB zone state and requests passive
+background tracking. By default it clears presence immediately; callers can pass
+`clearPresence: false` if they intentionally want the current presence row to age
+out under existing behavior.
+
 ## Geofence confirmed entry path
 
 `geofenceEngine.completeHandleEnter(zoneId, zone, driverId)` is the confirmed-entry path after native geofence wake-up and polygon verification. Geofence entry must promote the driver to `STAGED` before calling `maybeSendPresenceHeartbeat()`.

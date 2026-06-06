@@ -15,6 +15,7 @@ import {
 } from './constants';
 import { upsertDriverPresence } from './zoneStatsEngine';
 import { recordPresenceWrite } from './locationWritePolicy';
+import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
 
 let lastHeartbeatAt = 0;
 
@@ -22,6 +23,26 @@ let lastHeartbeatAt = 0;
 // heartbeat (or a forced one) fires immediately instead of waiting out the window.
 export function resetPresenceHeartbeat() {
   lastHeartbeatAt = 0;
+}
+
+function recordHeartbeatDebug({
+  reason,
+  driverId,
+  zoneId,
+  classification,
+  errorMessage,
+  success = false,
+}) {
+  const now = Date.now();
+  recordTrackingDebug({
+    lastHeartbeatAttemptAt: now,
+    lastHeartbeatZoneId: zoneId ?? null,
+    lastHeartbeatClassification: classification ?? null,
+    lastHeartbeatBlockedReason: reason,
+    lastHeartbeatErrorMessage: errorMessage ?? null,
+    lastHeartbeatHasDriverId: !!driverId,
+    ...(success ? { lastHeartbeatSuccessAt: now, lastHeartbeatAt: now } : {}),
+  });
 }
 
 // Low-level throttled sender. Returns true if a write was issued.
@@ -37,16 +58,46 @@ export async function maybeSendPresenceHeartbeat({
   visitId,
   force = false,
 } = {}) {
-  if (!driverId) return false;
+  if (!driverId) {
+    recordHeartbeatDebug({
+      reason: 'blocked_no_driver_id',
+      driverId,
+      zoneId,
+      classification,
+    });
+    return false;
+  }
   // A presence row without coordinates is useless for live counts.
-  if (lat == null || lng == null) return false;
+  if (lat == null || lng == null) {
+    recordHeartbeatDebug({
+      reason: 'blocked_no_coordinates',
+      driverId,
+      zoneId,
+      classification,
+    });
+    return false;
+  }
   // Only ACTIVE / STAGED drivers heartbeat. PASSIVE_FAR / PASSIVE_NEAR /
   // EXIT_GRACE / TRACKING_DISABLED (and legacy OFF_DUTY) must NOT write presence
   // — passive drivers are not participating and EXIT_GRACE is cleared instead.
-  if (!isHeartbeatStatus(store.getState().drivers.status)) return false;
+  if (!isHeartbeatStatus(store.getState().drivers.status)) {
+    recordHeartbeatDebug({
+      reason: 'blocked_status_not_heartbeat',
+      driverId,
+      zoneId,
+      classification,
+    });
+    return false;
+  }
 
   const now = Date.now();
   if (!force && now - lastHeartbeatAt < PRESENCE_HEARTBEAT_INTERVAL_MS) {
+    recordHeartbeatDebug({
+      reason: 'blocked_throttle',
+      driverId,
+      zoneId,
+      classification,
+    });
     return false;
   }
   lastHeartbeatAt = now;
@@ -56,7 +107,10 @@ export async function maybeSendPresenceHeartbeat({
   // the buffered trajectory array here — raw GPS history is persisted separately
   // at visit exit. This keeps each heartbeat tiny so a ~25s cadence per driver
   // stays cheap on Supabase.
-  await upsertDriverPresence({
+  const rpcStartedAt = Date.now();
+  recordTrackingDebug({ heartbeatRpcStartedAt: rpcStartedAt, heartbeatRpcFinishedAt: null });
+
+  const { error, lastPingAt } = await upsertDriverPresence({
     driverId,
     zoneId: zoneId ?? null,
     classification: classification ?? 'ACTIVE',
@@ -67,8 +121,62 @@ export async function maybeSendPresenceHeartbeat({
     heading,
     visitId: visitId ?? null,
   });
+
+  const rpcFinishedAt = Date.now();
+
+  if (error) {
+    recordTrackingDebug({
+      heartbeatRpcFinishedAt: rpcFinishedAt,
+      heartbeatRpcError: error.message,
+      heartbeatRpcReturned: null,
+      heartbeatDbLastPingAt: null,
+      heartbeatDbConfirmedFresh: false,
+      heartbeatDbMismatchReason: `rpc_error: ${error.message}`,
+    });
+    recordHeartbeatDebug({
+      reason: 'rpc_error',
+      driverId,
+      zoneId,
+      classification,
+      errorMessage: error.message,
+    });
+    return false;
+  }
+
+  // Verify the DB actually wrote a fresh timestamp. The RPC (migration 018)
+  // returns the last_ping_at it wrote. If lastPingAt is null the old RPC is
+  // deployed (pre-018); treat as unconfirmed rather than blocking the write.
+  let confirmedFresh = null;
+  let mismatchReason = null;
+  const pingMs = lastPingAt ? new Date(lastPingAt).getTime() : null;
+  if (pingMs != null) {
+    const ageMs = rpcFinishedAt - pingMs;
+    if (ageMs > 90_000) {
+      confirmedFresh = false;
+      mismatchReason = `last_ping_at is ${Math.round(ageMs / 1000)}s old — RPC may not have updated the row`;
+    } else {
+      confirmedFresh = true;
+    }
+  }
+
+  recordTrackingDebug({
+    heartbeatRpcFinishedAt: rpcFinishedAt,
+    heartbeatRpcError: null,
+    heartbeatRpcReturned: lastPingAt,
+    heartbeatDbLastPingAt: lastPingAt,
+    heartbeatDbConfirmedFresh: confirmedFresh,
+    heartbeatDbMismatchReason: mismatchReason,
+  });
+
   recordPresenceWrite();
-  return true;
+  recordHeartbeatDebug({
+    reason: confirmedFresh === false ? 'rpc_stale_ping' : 'success',
+    driverId,
+    zoneId,
+    classification,
+    success: confirmedFresh !== false,
+  });
+  return confirmedFresh !== false;
 }
 
 // Map current Redux driver state → presence classification.
@@ -86,12 +194,25 @@ function classificationForState(state) {
 // Convenience wrapper invoked from locationEngine on every smoothed fix. Reads
 // the current driver/zone/location straight from Redux and applies throttling.
 export function presenceHeartbeatFromLocation(point) {
-  if (!point) return;
+  if (!point) {
+    recordHeartbeatDebug({ reason: 'blocked_no_coordinates' });
+    return;
+  }
   const state = store.getState();
   const driverId = state.auth.session?.user?.id ?? null;
-  if (!driverId) return;
+  if (!driverId) {
+    recordHeartbeatDebug({ reason: 'blocked_no_driver_id' });
+    return;
+  }
   // Skip passive / exit-grace / disabled — see maybeSendPresenceHeartbeat.
-  if (!isHeartbeatStatus(state.drivers.status)) return;
+  if (!isHeartbeatStatus(state.drivers.status)) {
+    recordHeartbeatDebug({
+      reason: 'blocked_status_not_heartbeat',
+      driverId,
+      zoneId: state.drivers.currentZoneId ?? null,
+    });
+    return;
+  }
 
   const zoneId = state.drivers.currentZoneId ?? null;
   const classification = classificationForState(state);

@@ -74,6 +74,8 @@ export async function startExitGrace(driverId, latestLocation) {
     workAreaExitStartedAt: Date.now(),
     detectedZoneId: null,
     detectedZoneName: null,
+    lastTaskDesiredStatus: DRIVER_STATUS.EXIT_GRACE,
+    lastTaskStatusAfter: store.getState().drivers.status,
   });
 }
 
@@ -99,6 +101,8 @@ export async function evaluateExitGrace(driverId, latestLocation) {
     lastStatus: DRIVER_STATUS.EXIT_GRACE,
     insideWorkArea: false,
     workAreaExitStartedAt: startedAt,
+    lastTaskDesiredStatus: DRIVER_STATUS.EXIT_GRACE,
+    lastTaskStatusAfter: store.getState().drivers.status,
   });
   return DRIVER_STATUS.EXIT_GRACE;
 }
@@ -148,6 +152,8 @@ export async function completeExitToPassive(driverId, latestLocation) {
     workAreaExitStartedAt: null,
     detectedZoneId: null,
     detectedZoneName: null,
+    lastTaskDesiredStatus: mode,
+    lastTaskStatusAfter: store.getState().drivers.status,
   });
   return mode;
 }

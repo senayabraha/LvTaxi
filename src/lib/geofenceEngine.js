@@ -130,7 +130,9 @@ async function completeHandleEnter(zoneId, zone, driverId) {
   // while status is passive (see isHeartbeatStatus), so without this the forced
   // write below is silently discarded and the driver is never counted even though
   // the UI already shows "You are here".
-  const transitionResult = await transitionToStaged(driverId, zoneId);
+  const transitionResult = await transitionToStaged(driverId, zoneId, {
+    source: 'geofenceEngine.completeHandleEnter',
+  });
   recordTrackingDebug(
     zoneDebugBase(zoneId, zone, {
       geofenceLastEvent: 'geofence_promoted_to_staged',

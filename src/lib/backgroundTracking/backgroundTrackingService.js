@@ -158,15 +158,22 @@ async function stopTask(taskName) {
   if (await isTaskRunning(taskName)) {
     try {
       await Location.stopLocationUpdatesAsync(taskName);
+      return true;
     } catch (err) {
       console.warn('[backgroundTracking] stop task failed', taskName, err);
+      return false;
     }
   }
+  return true;
 }
 
 // ── Passive tracking ─────────────────────────────────────────────────────────
 export async function startPassiveTracking(mode = DRIVER_STATUS.PASSIVE_FAR) {
-  if (!(await hasPermissions())) return false;
+  recordTrackingDebug({ passiveTaskStartRequestedAt: Date.now(), passiveTaskStartError: null });
+  if (!(await hasPermissions())) {
+    recordTrackingDebug({ passiveTaskStartError: 'missing_location_permission' });
+    return false;
+  }
   // Only one task runs at a time — passive owns the slow watch.
   await stopActiveTracking();
 
@@ -187,25 +194,46 @@ export async function startPassiveTracking(mode = DRIVER_STATUS.PASSIVE_FAR) {
     return true;
   } catch (err) {
     console.warn('[backgroundTracking] startPassiveTracking failed', err);
+    recordTrackingDebug({ passiveTaskStartError: err?.message ?? 'start_passive_failed' });
     return false;
   }
 }
 
 export async function stopPassiveTracking() {
-  await stopTask(LVTAXI_PASSIVE_LOCATION_TASK);
+  recordTrackingDebug({ passiveTaskStopRequestedAt: Date.now(), passiveTaskStopError: null });
+  const ok = await stopTask(LVTAXI_PASSIVE_LOCATION_TASK);
+  if (!ok) {
+    recordTrackingDebug({ passiveTaskStopError: 'stop_passive_failed' });
+  }
   currentPassiveMode = null;
+  return ok;
 }
 
 // ── Active tracking ──────────────────────────────────────────────────────────
 export async function startActiveTracking() {
-  if (!(await hasPermissions())) return false;
-  await stopPassiveTracking();
+  recordTrackingDebug({ activeTaskStartRequestedAt: Date.now(), activeTaskStartError: null });
+  if (!(await hasPermissions())) {
+    recordTrackingDebug({ activeTaskStartError: 'missing_location_permission' });
+    return false;
+  }
 
   const alreadyRunning = await isTaskRunning(LVTAXI_ACTIVE_LOCATION_TASK);
-  if (alreadyRunning && currentActiveCadence === 'active') {
+
+  // If the active task is already running at the correct cadence, do not stop and
+  // restart it. This is critical on Android: calling stopLocationUpdatesAsync then
+  // startLocationUpdatesAsync from WITHIN the active task's own execution (e.g.
+  // transitionToStaged called from activeLocationTask) causes the restart to fail
+  // with a platform error. The module-level currentActiveCadence may be null after
+  // a cold OS relaunch of the background process, so we trust isTaskRunning over
+  // the cached variable when checking whether to skip the restart.
+  if (alreadyRunning && (currentActiveCadence === 'active' || currentActiveCadence === null)) {
+    currentActiveCadence = 'active';
     recordTrackingDebug({ lastTask: 'active' });
     return true;
   }
+
+  // Not running or running at the wrong cadence — stop passive, then (re)start.
+  await stopPassiveTracking();
   if (alreadyRunning) await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
 
   try {
@@ -218,6 +246,7 @@ export async function startActiveTracking() {
     return true;
   } catch (err) {
     console.warn('[backgroundTracking] startActiveTracking failed', err);
+    recordTrackingDebug({ activeTaskStartError: err?.message ?? 'start_active_failed' });
     return false;
   }
 }
@@ -225,10 +254,20 @@ export async function startActiveTracking() {
 // EXIT_GRACE reuses the active task (same in-task logic) but at a lighter cadence.
 export async function startExitGraceTracking() {
   if (!(await hasPermissions())) return false;
-  await stopPassiveTracking();
 
   const alreadyRunning = await isTaskRunning(LVTAXI_ACTIVE_LOCATION_TASK);
+
+  // Already running at exit_grace cadence — no restart needed.
   if (alreadyRunning && currentActiveCadence === 'exit_grace') return true;
+
+  // Running at active cadence from within the active task itself (cold module
+  // state): accept it rather than stopping and restarting from inside the task.
+  if (alreadyRunning && currentActiveCadence === null) {
+    currentActiveCadence = 'exit_grace';
+    return true;
+  }
+
+  await stopPassiveTracking();
   if (alreadyRunning) await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
 
   try {
@@ -245,8 +284,13 @@ export async function startExitGraceTracking() {
 }
 
 export async function stopActiveTracking() {
-  await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
+  recordTrackingDebug({ activeTaskStopRequestedAt: Date.now(), activeTaskStopError: null });
+  const ok = await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
+  if (!ok) {
+    recordTrackingDebug({ activeTaskStopError: 'stop_active_failed' });
+  }
   currentActiveCadence = null;
+  return ok;
 }
 
 export async function stopAllBackgroundTracking() {

@@ -34,7 +34,7 @@ export async function upsertDriverPresence({
   heading,
   visitId,
 }) {
-  const { error } = await supabase.rpc('upsert_driver_presence', {
+  const { data, error } = await supabase.rpc('upsert_driver_presence', {
     p_driver_id:      driverId,
     p_zone_id:        zoneId ?? null,
     p_classification: classification ?? 'ACTIVE',
@@ -46,6 +46,9 @@ export async function upsertDriverPresence({
     p_visit_id:       visitId ?? null,
   });
   if (error) console.warn('[zoneStatsEngine] upsertDriverPresence failed', error);
+  // data is the last_ping_at timestamptz returned by the RPC (migration 018).
+  // null means the RPC was not yet deployed; caller should treat as unconfirmed.
+  return { error, lastPingAt: data ?? null };
 }
 
 export async function clearDriverPresence(driverId) {
@@ -69,18 +72,10 @@ export async function recordLoadEvent(zoneId) {
 // Read-only — counts open visits entered before driverEnteredAt.
 
 export async function getDriverPositionInZone(zoneId, driverEnteredAt) {
-  if (!driverEnteredAt) return null;
-  const { count, error } = await supabase
-    .from('zone_visits')
-    .select('*', { count: 'exact', head: true })
-    .eq('zone_id', zoneId)
-    .is('exited_at', null)
-    .lt('entered_at', driverEnteredAt);
-  if (error) {
-    console.warn('[zoneStatsEngine] getDriverPositionInZone failed', error);
-    return null;
-  }
-  return (count ?? 0) + 1;
+  // Historical zone_visits can contain stale open rows if a device missed an
+  // exit, so it is not a reliable live queue-order source. Hide the position
+  // until live ordering is derived from fresh presence rows.
+  return null;
 }
 
 // ── DEPRECATED — DO NOT CALL FROM APP CODE ───────────────────────────────────

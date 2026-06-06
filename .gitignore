@@ -10,5 +10,6 @@ web-build/
 .claude/
 supabase/.temp/
 secrets/
+.mcp.json
 
 .env.local
