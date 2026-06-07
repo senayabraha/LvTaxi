@@ -95,6 +95,10 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
       current.currentZoneId !== zone.id ||
       !current.isInsideZone;
     if (needsTransition) {
+      // transitionToStaged now ensures exactly one open zone_visits row for this
+      // driver (Issue 4 / CNT-1), so a driver staged via the poll path — not just
+      // the geofence path — produces dwell history instead of being counted with
+      // none. (Robust exit/dwell-close for this path is wired in Issue 8.)
       await transitionToStaged(driverId, zone.id, {
         source: 'activeLocationTask',
         skipTaskRestart: true,

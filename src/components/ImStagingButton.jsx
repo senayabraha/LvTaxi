@@ -1,13 +1,13 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, Pressable, Modal, FlatList } from 'react-native';
-import { useDispatch, useSelector } from 'react-redux';
-import { setStatus, zoneEntered } from '../store/driversSlice';
+import { useSelector } from 'react-redux';
 import { DRIVER_STATUS } from '../lib/constants';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/locationEngine';
 import { maybeSendPresenceHeartbeat } from '../lib/presenceHeartbeat';
 import { startRecording } from '../lib/trajectoryRecorder';
 import { registerActiveVisit } from '../lib/geofenceEngine';
+import { transitionToStaged } from '../lib/driverStatusTransitions';
 import { confirmStagingLocation } from '../lib/polygonConfirmation';
 import { showToast } from '../lib/toast';
 
@@ -17,7 +17,6 @@ import { showToast } from '../lib/toast';
 const NEAR_METERS = 200;
 
 export default function ImStagingButton() {
-  const dispatch = useDispatch();
   const status = useSelector((s) => s.drivers.status);
   const driverId = useSelector((s) => s.auth.session?.user?.id);
   const currentLat = useSelector((s) => s.drivers.currentLat);
@@ -49,36 +48,22 @@ export default function ImStagingButton() {
           return;
         }
 
-        // 1. Update Redux immediately so the heartbeat guard passes.
-        dispatch(setStatus(DRIVER_STATUS.STAGED));
-        dispatch(zoneEntered(zone.id));
+        // 1. Route through the single staging transition: it updates Redux + the
+        // drivers row AND ensures exactly one open zone_visits row (Issue 4), so
+        // the manual button no longer inserts its own (which caused duplicate
+        // visits on rapid taps / overlap with the geofence path — CNT-5).
+        const result = await transitionToStaged(driverId, zone.id, {
+          source: 'ImStagingButton.stageAt',
+        });
+        const visitId = result.visitId ?? null;
 
-        // 2. Insert zone_visits row so exit processing has a visitId to work with.
-        let visitId = null;
-        if (driverId) {
-          const { data, error } = await supabase
-            .from('zone_visits')
-            .insert({
-              driver_id: driverId,
-              zone_id: zone.id,
-              entered_at: new Date().toISOString(),
-            })
-            .select('id')
-            .single();
-          if (error) {
-            console.warn('[ImStagingButton] insert zone_visit failed', error.message);
-          } else {
-            visitId = data.id;
-          }
-        }
-
-        // 3. Register with the geofence engine so handleExit finds this visit.
+        // 2. Register with the geofence engine so handleExit finds this visit.
         registerActiveVisit(zone.id, visitId);
 
-        // 4. Start trajectory recording so exit classification has GPS data.
+        // 3. Start trajectory recording so exit classification has GPS data.
         startRecording(visitId, { lat: zone.lat, lng: zone.lng });
 
-        // 5. Force an immediate presence heartbeat so the driver is counted now.
+        // 4. Force an immediate presence heartbeat so the driver is counted now.
         if (driverId) {
           await maybeSendPresenceHeartbeat({
             driverId,
@@ -92,19 +77,6 @@ export default function ImStagingButton() {
           });
         }
 
-        // 6. Persist status + zone to the drivers row.
-        if (driverId) {
-          const { error } = await supabase
-            .from('drivers')
-            .update({
-              status: DRIVER_STATUS.STAGED,
-              current_zone_id: zone.id,
-              last_seen: new Date().toISOString(),
-            })
-            .eq('id', driverId);
-          if (error) console.warn('[ImStagingButton] update driver failed', error.message);
-        }
-
         showToast(`Staged at ${zone.name}`, 'success');
       } finally {
         setBusy(false);
@@ -112,7 +84,7 @@ export default function ImStagingButton() {
         setPickerZones(null);
       }
     },
-    [dispatch, driverId, currentLat, currentLng, rawAccuracy]
+    [driverId, currentLat, currentLng, rawAccuracy]
   );
 
   const onPress = useCallback(async () => {

@@ -94,45 +94,23 @@ function verifyWithPolygon(zone, lat, lng) {
 
 async function completeHandleEnter(zoneId, zone, driverId) {
   // Set sentinel BEFORE any async work so the handleEnter guard keeps re-fires out
-  // even while the insert is in flight.
+  // even while the transition is in flight.
   activeVisits.set(zoneId, null);
   recordTrackingDebug(
     zoneDebugBase(zoneId, zone, { geofenceLastEvent: 'geofence_polygon_confirmed' })
   );
 
-  let visitId = null;
-  if (driverId) {
-    const { data, error } = await supabase
-      .from('zone_visits')
-      .insert({
-        driver_id: driverId,
-        zone_id: zoneId,
-        entered_at: new Date().toISOString(),
-      })
-      .select('id')
-      .single();
-    if (error) {
-      console.warn('[geofenceEngine] insert zone_visit failed', error);
-    } else {
-      visitId = data.id;
-      activeVisits.set(zoneId, visitId);
-      recordTrackingDebug(
-        zoneDebugBase(zoneId, zone, {
-          geofenceLastEvent: 'geofence_visit_inserted',
-          geofenceVisitId: visitId,
-        })
-      );
-    }
-  }
-
   // A polygon-confirmed staging-zone entry IS the "staged" signal. Promote and
   // persist BEFORE the heartbeat: maybeSendPresenceHeartbeat() drops any write
   // while status is passive (see isHeartbeatStatus), so without this the forced
   // write below is silently discarded and the driver is never counted even though
-  // the UI already shows "You are here".
+  // the UI already shows "You are here". transitionToStaged is now the single
+  // owner of the zone_visits row (Issue 4) and returns the open visit id.
   const transitionResult = await transitionToStaged(driverId, zoneId, {
     source: 'geofenceEngine.completeHandleEnter',
   });
+  const visitId = transitionResult.visitId ?? null;
+  if (visitId) activeVisits.set(zoneId, visitId);
   recordTrackingDebug(
     zoneDebugBase(zoneId, zone, {
       geofenceLastEvent: 'geofence_promoted_to_staged',

@@ -7,7 +7,7 @@ import {
   startActiveTracking,
   startPassiveTracking,
 } from './backgroundTracking/backgroundTrackingService';
-import { clearDriverPresence } from './zoneStatsEngine';
+import { clearDriverPresence, ensureOpenVisit } from './zoneStatsEngine';
 
 function safeDispatch(action) {
   try {
@@ -56,10 +56,16 @@ export async function transitionToStaged(driverId, zoneId, opts = {}) {
     return { ok: false, error };
   }
 
+  // Single source of truth for the visit: ensure exactly one OPEN zone_visits row
+  // for this driver, regardless of which detector (geofence / poll / manual)
+  // triggered the staging. Both other callers now consume the returned visitId
+  // instead of inserting their own row (Issue 4 / CNT-1, CNT-2, CNT-5).
+  const { visitId } = await ensureOpenVisit(driverId, zoneId);
+
   if (!opts.skipTaskRestart) {
     await ensureActiveTracking('transitionToStaged');
   }
-  return { ok: true };
+  return { ok: true, visitId };
 }
 
 export async function transitionToActive(driverId, opts = {}) {

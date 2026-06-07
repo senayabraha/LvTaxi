@@ -1,5 +1,18 @@
 import { supabase } from './supabase';
 
+// Mirror of visitProcessor.isMissingFunctionError so calls degrade gracefully
+// when a migration has not been applied yet (the app must run either way).
+function isMissingFunctionError(error) {
+  if (!error) return false;
+  if (error.code === 'PGRST202') return true;
+  const msg = (error.message || '').toLowerCase();
+  return (
+    msg.includes('could not find the function') ||
+    msg.includes('schema cache') ||
+    (msg.includes('function') && msg.includes('does not exist'))
+  );
+}
+
 // ── Live stats (presence-based) ───────────────────────────────────────────────
 // Primary read path for live zone stats. Returns rows with the full shape:
 //   { zone_id, cars_staged, flow_rate_per_hour,
@@ -49,6 +62,43 @@ export async function upsertDriverPresence({
   // data is the last_ping_at timestamptz returned by the RPC (migration 018).
   // null means the RPC was not yet deployed; caller should treat as unconfirmed.
   return { error, lastPingAt: data ?? null };
+}
+
+// ── Idempotent open-visit ensurer (Issue 4 / CNT-1) ──────────────────────────
+// Both zone-entry detectors and the manual button call this so exactly one open
+// zone_visits row exists per driver. Returns the open visit id. Falls back to a
+// best-effort single insert if migration 021 isn't applied yet.
+export async function ensureOpenVisit(driverId, zoneId) {
+  if (!driverId || !zoneId) return { error: 'missing_args', visitId: null };
+
+  const { data, error } = await supabase.rpc('ensure_open_visit', {
+    p_driver_id: driverId,
+    p_zone_id: zoneId,
+  });
+
+  if (error && isMissingFunctionError(error)) {
+    // Pre-migration fallback: a single insert (no cross-zone dedupe guarantee).
+    const ins = await supabase
+      .from('zone_visits')
+      .insert({
+        driver_id: driverId,
+        zone_id: zoneId,
+        entered_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+    if (ins.error) {
+      console.warn('[zoneStatsEngine] ensureOpenVisit fallback insert failed', ins.error.message);
+      return { error: ins.error, visitId: null };
+    }
+    return { error: null, visitId: ins.data.id };
+  }
+
+  if (error) {
+    console.warn('[zoneStatsEngine] ensureOpenVisit failed', error.message);
+    return { error, visitId: null };
+  }
+  return { error: null, visitId: data ?? null };
 }
 
 export async function clearDriverPresence(driverId) {
