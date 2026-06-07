@@ -47,7 +47,7 @@ export async function upsertDriverPresence({
   heading,
   visitId,
 }) {
-  const { data, error } = await supabase.rpc('upsert_driver_presence', {
+  const args = {
     p_driver_id:      driverId,
     p_zone_id:        zoneId ?? null,
     p_classification: classification ?? 'ACTIVE',
@@ -57,10 +57,19 @@ export async function upsertDriverPresence({
     p_accuracy:       accuracy ?? null,
     p_heading:        heading ?? null,
     p_visit_id:       visitId ?? null,
-  });
+  };
+
+  // Prefer the server-validated RPC (migration 023): it recomputes the true zone
+  // via ST_Contains and enforces the accuracy ceiling, so a drifted/spoofed
+  // client cannot claim STAGING. Fall back to the legacy upsert only when the
+  // validated function isn't deployed yet (app must run pre-migration).
+  let { data, error } = await supabase.rpc('upsert_driver_presence_validated', args);
+  if (error && isMissingFunctionError(error)) {
+    ({ data, error } = await supabase.rpc('upsert_driver_presence', args));
+  }
   if (error) console.warn('[zoneStatsEngine] upsertDriverPresence failed', error);
-  // data is the last_ping_at timestamptz returned by the RPC (migration 018).
-  // null means the RPC was not yet deployed; caller should treat as unconfirmed.
+  // data is the last_ping_at timestamptz returned by the RPC (migration 018/023).
+  // null means neither RPC was deployed; caller should treat as unconfirmed.
   return { error, lastPingAt: data ?? null };
 }
 

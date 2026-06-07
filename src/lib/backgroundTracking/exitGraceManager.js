@@ -20,10 +20,11 @@ import {
   clearWorkAreaExitStartedAt,
   setCurrentZone,
 } from '../../store/driversSlice';
-import { DRIVER_STATUS, WORK_AREA_EXIT_GRACE_MS } from '../constants';
+import { DRIVER_STATUS } from '../constants';
 import { supabase } from '../supabase';
 import { clearDriverPresence } from '../zoneStatsEngine';
 import { classifyPassiveDistance } from '../workAreaGeometry';
+import { isExitGraceExpired } from '../presenceFreshness';
 import { recordTrackingDebug } from './trackingDebug';
 import {
   persistDriverStatus,
@@ -88,8 +89,7 @@ export async function evaluateExitGrace(driverId, latestLocation) {
     return DRIVER_STATUS.EXIT_GRACE;
   }
 
-  const elapsed = Date.now() - startedAt;
-  if (elapsed >= WORK_AREA_EXIT_GRACE_MS) {
+  if (isExitGraceExpired(startedAt)) {
     await completeExitToPassive(driverId, latestLocation);
     return store.getState().drivers.status;
   }
