@@ -38,6 +38,9 @@ const zonesSlice = createSlice({
       state.stats[row.zone_id] = {
         ...existing,
         ...row,
+        // nearby_unconfirmed comes only from the live RPC (migration 020); a
+        // legacy zone_stats realtime event omits it, so preserve it too.
+        nearby_unconfirmed: preserve('nearby_unconfirmed'),
         estimated_wait_minutes: preserve('estimated_wait_minutes'),
         estimated_wait_min: preserve('estimated_wait_min'),
         estimated_wait_max: preserve('estimated_wait_max'),

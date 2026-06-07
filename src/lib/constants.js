@@ -257,6 +257,20 @@ export function countsInStagingMath(status) {
   return status === DRIVER_STATUS.STAGED;
 }
 
+// ── Presence-classification counting (server/client reconciliation) ──────────
+// driver_presence.classification is the server-side counterpart of driver
+// status. These mirror the live_counts CTE in get_zone_live_stats()
+// (migration 020) so the JS and SQL agree on what each bucket means:
+//   'STAGING' → confirmed staged   → counts toward cars_staged
+//   'UNKNOWN' → near, not confirmed → counts toward nearby_unconfirmed (NOT staged)
+// A driver whose status is STAGED (countsInStagingMath) writes 'STAGING'.
+export function classificationCountsAsStaged(classification) {
+  return classification === 'STAGING';
+}
+export function classificationCountsAsNearby(classification) {
+  return classification === 'UNKNOWN';
+}
+
 export const SORT_OPTIONS = {
   NEAREST: 'nearest',
   FLOW: 'flow',

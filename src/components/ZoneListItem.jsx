@@ -133,6 +133,7 @@ function ZoneListItem({
   }
 
   const cars = stat?.cars_staged ?? 0;
+  const nearby = stat?.nearby_unconfirmed ?? 0;
   const flow = stat?.flow_rate_per_hour ?? 0;
   const color = waitColor(stat);
   const tint = waitTint(stat);
@@ -213,7 +214,12 @@ function ZoneListItem({
       <View className="flex-row items-center px-4 pt-3 pb-1">
         <View className="w-14 items-start">
           <Text className="text-text text-2xl font-bold">{cars}</Text>
-          <Text className="text-muted text-xs">cars</Text>
+          <Text className="text-muted text-xs">staged</Text>
+          {nearby > 0 ? (
+            <Text className="text-muted" style={{ fontSize: 10 }}>
+              +{nearby} nearby
+            </Text>
+          ) : null}
         </View>
 
         <View className="w-20 items-start">
@@ -281,6 +287,7 @@ function areEqual(prev, next) {
   const b = next.stat ?? {};
   return (
     a.cars_staged === b.cars_staged &&
+    a.nearby_unconfirmed === b.nearby_unconfirmed &&
     a.flow_rate_per_hour === b.flow_rate_per_hour &&
     a.estimated_wait_minutes === b.estimated_wait_minutes &&
     a.estimated_wait_min === b.estimated_wait_min &&
