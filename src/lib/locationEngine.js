@@ -142,6 +142,9 @@ function maybeSwitchPowerMode(speed, timestamp) {
 function handleLocationUpdate(loc) {
   if (!kalman) return;
   const { latitude, longitude, accuracy, speed, heading } = loc.coords;
+  // expo-location exposes `mocked` at the top level of the location object on
+  // Android (undefined on iOS). Used by the presence accuracy/anti-spoof gate.
+  const mocked = loc.mocked === true;
   const timestamp = loc.timestamp ?? Date.now();
   const { smoothedLat, smoothedLng } = kalman.filter(latitude, longitude);
 
@@ -182,6 +185,7 @@ function handleLocationUpdate(loc) {
     speed: derivedSpeed,
     heading: derivedHeading,
     acceleration: derivedAcceleration,
+    mocked,
   };
 
   lastPoint = point;
@@ -208,6 +212,7 @@ function handleLocationUpdate(loc) {
         speed: derivedSpeed,
         heading: derivedHeading,
         acceleration: derivedAcceleration,
+        mocked,
       })
     );
   }

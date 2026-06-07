@@ -16,6 +16,7 @@ import {
 import { upsertDriverPresence } from './zoneStatsEngine';
 import { recordPresenceWrite } from './locationWritePolicy';
 import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
+import { isFixAcceptableForPresence } from './presenceGate';
 
 let lastHeartbeatAt = 0;
 
@@ -55,6 +56,7 @@ export async function maybeSendPresenceHeartbeat({
   speed,
   accuracy,
   heading,
+  mocked,
   visitId,
   force = false,
 } = {}) {
@@ -83,6 +85,20 @@ export async function maybeSendPresenceHeartbeat({
   if (!isHeartbeatStatus(store.getState().drivers.status)) {
     recordHeartbeatDebug({
       reason: 'blocked_status_not_heartbeat',
+      driverId,
+      zoneId,
+      classification,
+    });
+    return false;
+  }
+
+  // Accuracy / anti-spoof gate. A coarse or mocked fix must never count a driver
+  // into a queue — drop it BEFORE consuming the throttle window so a good fix
+  // moments later still writes. The server eligibility view re-enforces this.
+  const gate = isFixAcceptableForPresence({ accuracy, mocked });
+  if (!gate.ok) {
+    recordHeartbeatDebug({
+      reason: `blocked_${gate.reason}`,
       driverId,
       zoneId,
       classification,
@@ -226,6 +242,7 @@ export function presenceHeartbeatFromLocation(point) {
     speed: point.speed,
     accuracy: point.accuracy,
     heading: point.heading,
+    mocked: point.mocked,
   }).catch((err) =>
     console.warn('[presenceHeartbeat] heartbeat failed', err)
   );

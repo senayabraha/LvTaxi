@@ -51,6 +51,8 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
   const loc = getLatestLocation(data);
   if (!loc?.coords) return;
   const { latitude: lat, longitude: lng, speed, accuracy, heading } = loc.coords;
+  // `mocked` is top-level on Android location objects (anti-spoof gate).
+  const mocked = loc.mocked === true;
   const statusBefore = store.getState().drivers.status;
 
   const driverId = await getSessionUserId();
@@ -108,6 +110,7 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
       speed,
       accuracy,
       heading,
+      mocked,
     });
 
     recordTrackingDebug({
@@ -174,6 +177,7 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
     speed,
     accuracy,
     heading,
+    mocked,
   });
 
   recordTrackingDebug({

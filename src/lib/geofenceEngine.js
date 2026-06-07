@@ -49,6 +49,7 @@ async function getHeartbeatPoint() {
       speed: drivers.speed,
       accuracy: drivers.rawAccuracy,
       heading: drivers.heading,
+      mocked: drivers.mocked === true,
     };
   }
 
@@ -61,6 +62,7 @@ async function getHeartbeatPoint() {
         speed: pos.coords.speed,
         accuracy: pos.coords.accuracy,
         heading: pos.coords.heading,
+        mocked: pos.mocked === true,
       };
     }
   } catch (err) {
@@ -164,6 +166,7 @@ async function completeHandleEnter(zoneId, zone, driverId) {
         speed: point.speed,
         accuracy: point.accuracy,
         heading: point.heading,
+        mocked: point.mocked,
         visitId,
         force: true,
       });
