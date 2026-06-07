@@ -1,6 +1,5 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import * as turf from '@turf/turf';
 import * as Sentry from '@sentry/react-native';
 import { store } from '../store';
 import { zoneExited } from '../store/driversSlice';
@@ -12,6 +11,7 @@ import { processZoneExit } from './visitProcessor';
 import { maybeSendPresenceHeartbeat } from './presenceHeartbeat';
 import { transitionToStaged } from './driverStatusTransitions';
 import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
+import { pointInZonePolygon } from './polygonConfirmation';
 import { DRIVER_STATUS, SORT_OPTIONS } from './constants';
 
 export const GEOFENCE_TASK = 'LVTAXI_GEOFENCE_TASK';
@@ -76,20 +76,18 @@ function getZoneById(id) {
   return all.find((z) => z.id === id) ?? null;
 }
 
-// Hybrid layer: native circle wakes us up, polygon refines.
-// Returns true if no polygon (trust the circle).
+// Hybrid layer: native circle wakes us up, polygon refines. Delegates to the
+// shared confirmation helper so the manual ("I'm Staging") path and this geofence
+// path use one implementation.
+//   • No polygon  → true (trust the native circle that woke us — this path is
+//                   only reached for zones with a circle geofence anyway).
+//   • Has polygon → must contain the point; a malformed-polygon error is
+//                   fail-closed (helper returns false) so we never confirm
+//                   staging on corrupt data.
 function verifyWithPolygon(zone, lat, lng) {
   if (!zone) return true;
-  const polygon = zone.use_driven_polygon
-    ? zone.driven_polygon
-    : zone.drawn_polygon;
-  if (!polygon) return true;
-  try {
-    return turf.booleanPointInPolygon(turf.point([lng, lat]), polygon);
-  } catch (err) {
-    console.warn('[geofenceEngine] polygon check failed', err);
-    return true;
-  }
+  const inside = pointInZonePolygon(zone, lat, lng);
+  return inside === null ? true : inside;
 }
 
 async function completeHandleEnter(zoneId, zone, driverId) {

@@ -8,8 +8,12 @@ import { getDistanceMeters } from '../lib/locationEngine';
 import { maybeSendPresenceHeartbeat } from '../lib/presenceHeartbeat';
 import { startRecording } from '../lib/trajectoryRecorder';
 import { registerActiveVisit } from '../lib/geofenceEngine';
+import { confirmStagingLocation } from '../lib/polygonConfirmation';
 import { showToast } from '../lib/toast';
 
+// Coarse pre-filter only — how far from a zone centre we bother SHOWING it as a
+// staging candidate. Actual staging requires confirmStagingLocation() (polygon
+// containment, or a tight radius for polygon-less zones), never this radius.
 const NEAR_METERS = 200;
 
 export default function ImStagingButton() {
@@ -18,6 +22,7 @@ export default function ImStagingButton() {
   const driverId = useSelector((s) => s.auth.session?.user?.id);
   const currentLat = useSelector((s) => s.drivers.currentLat);
   const currentLng = useSelector((s) => s.drivers.currentLng);
+  const rawAccuracy = useSelector((s) => s.drivers.rawAccuracy);
 
   const [busy, setBusy] = useState(false);
   const [confirmZone, setConfirmZone] = useState(null);
@@ -31,6 +36,19 @@ export default function ImStagingButton() {
       if (!zone) return;
       setBusy(true);
       try {
+        // 0. Confirm the driver is actually IN the lane before staging. Manual
+        // staging must clear the same bar as the geofence path: inside the
+        // zone polygon, or (polygon-less zones) within the zone's tight radius —
+        // never a flat 200 m. Outside → do not stage.
+        const confirmation = confirmStagingLocation(zone, currentLat, currentLng);
+        if (!confirmation.confirmed) {
+          showToast(
+            `You're not in the ${zone.name} lane yet — drive into the lane to stage`,
+            'info'
+          );
+          return;
+        }
+
         // 1. Update Redux immediately so the heartbeat guard passes.
         dispatch(setStatus(DRIVER_STATUS.STAGED));
         dispatch(zoneEntered(zone.id));
@@ -68,6 +86,7 @@ export default function ImStagingButton() {
             classification: 'STAGING',
             lat: currentLat,
             lng: currentLng,
+            accuracy: rawAccuracy,
             visitId,
             force: true,
           });
@@ -93,7 +112,7 @@ export default function ImStagingButton() {
         setPickerZones(null);
       }
     },
-    [dispatch, driverId, currentLat, currentLng]
+    [dispatch, driverId, currentLat, currentLng, rawAccuracy]
   );
 
   const onPress = useCallback(async () => {
@@ -111,7 +130,9 @@ export default function ImStagingButton() {
     setBusy(true);
     const { data, error } = await supabase
       .from('staging_zones')
-      .select('id, name, lat, lng')
+      .select(
+        'id, name, lat, lng, radius_meters, drawn_polygon, driven_polygon, use_driven_polygon'
+      )
       .eq('active', true)
       .eq('is_coming_soon', false);
     setBusy(false);
