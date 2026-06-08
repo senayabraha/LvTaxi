@@ -1,8 +1,9 @@
-// Dev/admin-only debug panel for the automatic background tracking system.
+// Admin-only debug panel for the automatic background tracking system.
 //
-// Rendered from ProfileScreen only for admins, and this component also returns
-// null outside __DEV__. Supabase reads are scoped to the currently authenticated
-// driver id so the mobile debug view never displays another driver's location.
+// Rendered from ProfileScreen only for admins (its sole access gate), so it is
+// available in every build — including preview and production — for admin
+// accounts. Supabase reads are scoped to the currently authenticated driver id
+// so the mobile debug view never displays another driver's location.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
@@ -18,8 +19,6 @@ import {
   LVTAXI_ACTIVE_LOCATION_TASK,
 } from '../lib/backgroundTracking/trackingTaskNames';
 import { WORK_AREA_EXIT_GRACE_MS } from '../lib/constants';
-
-const isDev = typeof __DEV__ !== 'undefined' && __DEV__;
 
 function fmtTime(value) {
   if (!value) return '-';
@@ -75,7 +74,6 @@ function Row({ label, value, tone }) {
 }
 
 export default function TrackingDebugPanel() {
-  if (!isDev) return null;
   return <TrackingDebugPanelInner />;
 }
 
