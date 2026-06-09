@@ -9,6 +9,7 @@ import { getDistanceMeters } from './locationEngine';
 import { stopRecording } from './trajectoryRecorder';
 import { processZoneExit } from './visitProcessor';
 import { enterStagingZone } from './stagingService';
+import { clearDriverPresence } from './zoneStatsEngine';
 import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
 import { pointInZonePolygon } from './polygonConfirmation';
 import { DRIVER_STATUS, SORT_OPTIONS } from './constants';
@@ -218,6 +219,17 @@ async function handleExit(zoneId) {
   const dwellSeconds = entryTime
     ? Math.round((Date.now() - entryTime) / 1000)
     : null;
+
+  // Clear presence immediately on confirmed exit, regardless of whether a
+  // visitId is available. A driver staged via the active-task path (no geofence
+  // visit) would otherwise stay counted until the 90s TTL expires (LIFE-6).
+  if (driverId) {
+    try {
+      await clearDriverPresence(driverId);
+    } catch (err) {
+      console.warn('[geofenceEngine] clearPresence on exit failed', err);
+    }
+  }
 
   if (visitId) {
     const { error } = await supabase

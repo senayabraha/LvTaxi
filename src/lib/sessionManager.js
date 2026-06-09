@@ -135,6 +135,16 @@ export function setupSessionListener(dispatch) {
       } else if (event === 'SIGNED_OUT') {
         Sentry.setUser(null);
         reconciledUserId = null;
+        // Capture before clearSession wipes the session from Redux.
+        const userId = store.getState().auth.session?.user?.id ?? null;
+        // Run the same cleanup that signOut() does so token-expiry / server-side
+        // forced logout also drops presence and stops background tasks (LIFE-3).
+        if (userId) {
+          try { await clearDriverPresence(userId); } catch {}
+        }
+        try { await stopAllBackgroundTracking(); } catch {}
+        try { await stopGeofenceManager(); } catch {}
+        try { stopLocationTracking(); } catch {}
         dispatch(clearSession());
         dispatch(clearProfile());
       } else if (event === 'USER_UPDATED') {
