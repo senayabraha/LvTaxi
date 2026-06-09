@@ -28,6 +28,7 @@ import {
   transitionToPassive,
 } from '../driverStatusTransitions';
 import { enterStagingZone } from '../stagingService';
+import { maybeSendPresenceHeartbeat } from '../presenceHeartbeat';
 import { LVTAXI_PASSIVE_LOCATION_TASK } from './trackingTaskNames';
 import { recordTrackingDebug } from './trackingDebug';
 import {
