@@ -28,7 +28,8 @@ import {
   getWorkAreaPolygonCount,
 } from '../workAreaGeometry';
 import { maybeSendPresenceHeartbeat } from '../presenceHeartbeat';
-import { transitionToActive, transitionToStaged } from '../driverStatusTransitions';
+import { transitionToActive } from '../driverStatusTransitions';
+import { enterStagingZone } from '../stagingService';
 import { LVTAXI_ACTIVE_LOCATION_TASK } from './trackingTaskNames';
 import { recordTrackingDebug } from './trackingDebug';
 import {
@@ -94,28 +95,30 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
       current.status !== DRIVER_STATUS.STAGED ||
       current.currentZoneId !== zone.id ||
       !current.isInsideZone;
+
+    let heartbeatSent = false;
     if (needsTransition) {
-      // transitionToStaged now ensures exactly one open zone_visits row for this
-      // driver (Issue 4 / CNT-1), so a driver staged via the poll path — not just
-      // the geofence path — produces dwell history instead of being counted with
-      // none. (Robust exit/dwell-close for this path is wired in Issue 8.)
-      await transitionToStaged(driverId, zone.id, {
+      // enterStagingZone: transition + reset heartbeat throttle + start recording
+      // + forced presence write. Ensures exactly one open zone_visits row so
+      // the poll path produces dwell history (CNT-1/CNT-2, Issue 7).
+      const stagingResult = await enterStagingZone({
+        driverId,
+        zoneId: zone.id,
+        zone,
         source: 'activeLocationTask',
+        lat, lng, speed, accuracy, heading, mocked,
         skipTaskRestart: true,
       });
+      heartbeatSent = stagingResult.heartbeatSent;
+    } else {
+      // Already staged in this zone — throttled heartbeat to keep presence fresh.
+      heartbeatSent = await maybeSendPresenceHeartbeat({
+        driverId,
+        zoneId: zone.id,
+        classification: 'STAGING',
+        lat, lng, speed, accuracy, heading, mocked,
+      });
     }
-
-    const sent = await maybeSendPresenceHeartbeat({
-      driverId,
-      zoneId: zone.id,
-      classification: 'STAGING',
-      lat,
-      lng,
-      speed,
-      accuracy,
-      heading,
-      mocked,
-    });
 
     recordTrackingDebug({
       insideWorkArea,
@@ -124,7 +127,7 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
       lastStatus: desiredStatus,
       lastTaskStatusAfter: store.getState().drivers.status,
       lastTaskDecisionReason: reason,
-      ...(sent ? { lastHeartbeatAt: Date.now() } : {}),
+      ...(heartbeatSent ? { lastHeartbeatAt: Date.now() } : {}),
     });
     return;
   }

@@ -6,10 +6,9 @@ import { zoneExited } from '../store/driversSlice';
 import { setTop20Zones } from '../store/zonesSlice';
 import { supabase } from './supabase';
 import { getDistanceMeters } from './locationEngine';
-import { startRecording, stopRecording } from './trajectoryRecorder';
+import { stopRecording } from './trajectoryRecorder';
 import { processZoneExit } from './visitProcessor';
-import { maybeSendPresenceHeartbeat } from './presenceHeartbeat';
-import { transitionToStaged } from './driverStatusTransitions';
+import { enterStagingZone } from './stagingService';
 import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
 import { pointInZonePolygon } from './polygonConfirmation';
 import { DRIVER_STATUS, SORT_OPTIONS } from './constants';
@@ -93,82 +92,45 @@ function verifyWithPolygon(zone, lat, lng) {
 }
 
 async function completeHandleEnter(zoneId, zone, driverId) {
-  // Set sentinel BEFORE any async work so the handleEnter guard keeps re-fires out
-  // even while the transition is in flight.
+  // Set sentinel BEFORE any async work so the handleEnter guard keeps re-fires
+  // out even while the staging service is in flight.
   activeVisits.set(zoneId, null);
   recordTrackingDebug(
     zoneDebugBase(zoneId, zone, { geofenceLastEvent: 'geofence_polygon_confirmed' })
   );
 
-  // A polygon-confirmed staging-zone entry IS the "staged" signal. Promote and
-  // persist BEFORE the heartbeat: maybeSendPresenceHeartbeat() drops any write
-  // while status is passive (see isHeartbeatStatus), so without this the forced
-  // write below is silently discarded and the driver is never counted even though
-  // the UI already shows "You are here". transitionToStaged is now the single
-  // owner of the zone_visits row (Issue 4) and returns the open visit id.
-  const transitionResult = await transitionToStaged(driverId, zoneId, {
+  // Resolve a position for the forced heartbeat before handing off to the
+  // staging service (which sends it internally).
+  const point = await getHeartbeatPoint();
+
+  // enterStagingZone: transition + reset throttle + start recording + forced heartbeat.
+  const result = await enterStagingZone({
+    driverId,
+    zoneId,
+    zone,
     source: 'geofenceEngine.completeHandleEnter',
+    lat:      point?.lat  ?? null,
+    lng:      point?.lng  ?? null,
+    speed:    point?.speed ?? null,
+    accuracy: point?.accuracy ?? null,
+    heading:  point?.heading ?? null,
+    mocked:   point?.mocked ?? false,
   });
-  const visitId = transitionResult.visitId ?? null;
+  const visitId = result.visitId ?? null;
   if (visitId) activeVisits.set(zoneId, visitId);
+
   recordTrackingDebug(
     zoneDebugBase(zoneId, zone, {
       geofenceLastEvent: 'geofence_promoted_to_staged',
       geofenceVisitId: visitId,
-      geofenceTransitionOk: transitionResult.ok,
+      geofenceTransitionOk: result.ok,
+      geofenceHeartbeatSent: result.heartbeatSent,
       lastStatus: DRIVER_STATUS.STAGED,
       detectedZoneId: zoneId,
       detectedZoneName: zone?.name ?? null,
       workAreaExitStartedAt: null,
+      ...(result.heartbeatSent ? { lastHeartbeatAt: Date.now() } : {}),
     })
-  );
-
-  const point = await getHeartbeatPoint();
-  recordTrackingDebug(
-    zoneDebugBase(zoneId, zone, {
-      geofenceLastEvent: 'geofence_forced_heartbeat_attempted',
-      geofenceVisitId: visitId,
-      geofenceHeartbeatAttempted: !!(driverId && point),
-    })
-  );
-
-  let heartbeatSent = false;
-  if (driverId && point) {
-    try {
-      heartbeatSent = await maybeSendPresenceHeartbeat({
-        driverId,
-        zoneId,
-        classification: 'STAGING',
-        lat: point.lat,
-        lng: point.lng,
-        speed: point.speed,
-        accuracy: point.accuracy,
-        heading: point.heading,
-        mocked: point.mocked,
-        visitId,
-        force: true,
-      });
-    } catch (err) {
-      console.warn('[geofenceEngine] presence upsert on enter failed', err);
-    }
-  }
-
-  recordTrackingDebug(
-    zoneDebugBase(zoneId, zone, {
-      geofenceLastEvent: 'geofence_forced_heartbeat_success_or_blocked',
-      geofenceVisitId: visitId,
-      geofenceHeartbeatSent: heartbeatSent,
-      ...(heartbeatSent ? { lastHeartbeatAt: Date.now() } : {}),
-    })
-  );
-
-  // Live counts come from active_driver_presence — no legacy counter here.
-  // Force a presence write immediately on zone enter so the driver is counted
-  // without waiting for the next throttled heartbeat tick. Status is now STAGED,
-  // so the heartbeat guard passes and the classification is STAGING.
-  startRecording(
-    visitId,
-    zone ? { lat: zone.lat, lng: zone.lng } : null
   );
 }
 

@@ -23,12 +23,11 @@ import {
   detectStagingZoneFromPoint,
   getWorkAreaPolygonCount,
 } from '../workAreaGeometry';
-import { maybeSendPresenceHeartbeat } from '../presenceHeartbeat';
 import {
   transitionToActive,
   transitionToPassive,
-  transitionToStaged,
 } from '../driverStatusTransitions';
+import { enterStagingZone } from '../stagingService';
 import { LVTAXI_PASSIVE_LOCATION_TASK } from './trackingTaskNames';
 import { recordTrackingDebug } from './trackingDebug';
 import {
@@ -86,20 +85,15 @@ TaskManager.defineTask(LVTAXI_PASSIVE_LOCATION_TASK, async ({ data, error }) => 
       lastTaskDecisionReason: reason,
     });
 
-    await transitionToStaged(driverId, zone.id, {
-      source: 'passiveLocationTask',
-    });
-
-    const sent = await maybeSendPresenceHeartbeat({
+    // enterStagingZone: transition + reset heartbeat throttle + start recording
+    // + forced presence write. Passive → staged must force a heartbeat so the
+    // driver appears in live counts immediately (CNT-1/CNT-2, Issue 7).
+    const stagingResult = await enterStagingZone({
       driverId,
       zoneId: zone.id,
-      classification: 'STAGING',
-      lat,
-      lng,
-      speed,
-      accuracy,
-      heading,
-      force: true,
+      zone,
+      source: 'passiveLocationTask',
+      lat, lng, speed, accuracy, heading,
     });
 
     recordTrackingDebug({
@@ -109,7 +103,7 @@ TaskManager.defineTask(LVTAXI_PASSIVE_LOCATION_TASK, async ({ data, error }) => 
       lastStatus: status,
       lastTaskStatusAfter: store.getState().drivers.status,
       lastTaskDecisionReason: reason,
-      ...(sent ? { lastHeartbeatAt: Date.now() } : {}),
+      ...(stagingResult.heartbeatSent ? { lastHeartbeatAt: Date.now() } : {}),
     });
     return;
   }

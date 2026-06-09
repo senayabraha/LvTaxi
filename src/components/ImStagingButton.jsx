@@ -4,10 +4,8 @@ import { useSelector } from 'react-redux';
 import { DRIVER_STATUS } from '../lib/constants';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/locationEngine';
-import { maybeSendPresenceHeartbeat } from '../lib/presenceHeartbeat';
-import { startRecording } from '../lib/trajectoryRecorder';
 import { registerActiveVisit } from '../lib/geofenceEngine';
-import { transitionToStaged } from '../lib/driverStatusTransitions';
+import { enterStagingZone } from '../lib/stagingService';
 import { confirmStagingLocation } from '../lib/polygonConfirmation';
 import { showToast } from '../lib/toast';
 
@@ -48,34 +46,22 @@ export default function ImStagingButton() {
           return;
         }
 
-        // 1. Route through the single staging transition: it updates Redux + the
-        // drivers row AND ensures exactly one open zone_visits row (Issue 4), so
-        // the manual button no longer inserts its own (which caused duplicate
-        // visits on rapid taps / overlap with the geofence path — CNT-5).
-        const result = await transitionToStaged(driverId, zone.id, {
+        // 1. enterStagingZone: transition + reset heartbeat + start recording +
+        //    forced presence write. Ensures exactly one open zone_visits row so
+        //    rapid taps / geofence overlap no longer cause duplicates (CNT-5).
+        const result = await enterStagingZone({
+          driverId,
+          zoneId: zone.id,
+          zone,
           source: 'ImStagingButton.stageAt',
+          lat: currentLat,
+          lng: currentLng,
+          accuracy: rawAccuracy,
         });
         const visitId = result.visitId ?? null;
 
         // 2. Register with the geofence engine so handleExit finds this visit.
         registerActiveVisit(zone.id, visitId);
-
-        // 3. Start trajectory recording so exit classification has GPS data.
-        startRecording(visitId, { lat: zone.lat, lng: zone.lng });
-
-        // 4. Force an immediate presence heartbeat so the driver is counted now.
-        if (driverId) {
-          await maybeSendPresenceHeartbeat({
-            driverId,
-            zoneId: zone.id,
-            classification: 'STAGING',
-            lat: currentLat,
-            lng: currentLng,
-            accuracy: rawAccuracy,
-            visitId,
-            force: true,
-          });
-        }
 
         showToast(`Staged at ${zone.name}`, 'success');
       } finally {
