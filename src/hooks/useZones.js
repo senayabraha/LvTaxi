@@ -51,6 +51,7 @@ export function useZones() {
   const retryDelayRef = useRef(1000);
   const retryTimerRef = useRef(null);
   const pollTimerRef = useRef(null);
+  const presenceDebounceRef = useRef(null);
 
   // Merge an array of live-stats rows into Redux (same shape as updateZoneStat).
   const mergeLiveStats = useCallback(
@@ -161,33 +162,36 @@ export function useZones() {
       loadLiveStats();
     }, LIVE_POLL_INTERVAL_MS);
 
-    // Realtime subscription on zone_stats for instant display flashes.
-    // Note: realtime shows legacy cache rows — enriched fields come from polling.
+    // Realtime subscription on driver_presence so live counts update within
+    // ~500ms of any staging/unstaging event instead of waiting for the 30s poll.
+    // zone_stats is no longer the realtime source (RT-1): it's a legacy write-cache
+    // that isn't updated by the current presence-based count path.
+    //
+    // On any presence row change:
+    //   1. Flash the affected zone in the UI immediately.
+    //   2. Debounce 500ms then refetch get_zone_live_stats() for all zones.
+    //      Debounce batches rapid multi-row changes (e.g. a driver moving between
+    //      zones fires DELETE + INSERT quickly) into a single RPC call.
+    // The 30s poll below remains as a fallback for any missed realtime events.
     const channel = supabase
-      .channel('zone_stats_changes')
+      .channel('driver_presence_live')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'zone_stats' },
+        { event: '*', schema: 'public', table: 'driver_presence' },
         (payload) => {
-          if (payload.new) {
-            dispatch(updateZoneStat(payload.new));
-            setStatsUpdatedAt(Date.now());
-            emitFlash(payload.new.zone_id);
-            // Refresh enriched fields from live RPC after every realtime ping.
-            loadLiveStats();
+          const zoneId =
+            payload.new?.current_zone_id ??
+            payload.old?.current_zone_id ??
+            null;
+          if (zoneId) emitFlash(zoneId);
+
+          if (presenceDebounceRef.current) {
+            clearTimeout(presenceDebounceRef.current);
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'zone_stats' },
-        (payload) => {
-          if (payload.new) {
-            dispatch(updateZoneStat(payload.new));
-            setStatsUpdatedAt(Date.now());
-            emitFlash(payload.new.zone_id);
+          presenceDebounceRef.current = setTimeout(() => {
+            presenceDebounceRef.current = null;
             loadLiveStats();
-          }
+          }, 500);
         }
       )
       .subscribe();
@@ -196,6 +200,7 @@ export function useZones() {
       cancelledRef.current = true;
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (presenceDebounceRef.current) clearTimeout(presenceDebounceRef.current);
       supabase.removeChannel(channel);
     };
   }, [dispatch, load, loadLiveStats]);
