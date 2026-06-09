@@ -23,11 +23,11 @@ import {
 import { DRIVER_STATUS } from '../constants';
 import { supabase } from '../supabase';
 import { clearDriverPresence } from '../zoneStatsEngine';
+import { transitionDriverState } from '../driverStatusTransitions';
 import { classifyPassiveDistance } from '../workAreaGeometry';
 import { isExitGraceExpired } from '../presenceFreshness';
 import { recordTrackingDebug } from './trackingDebug';
 import {
-  persistDriverStatus,
   startPassiveTracking,
   startExitGraceTracking,
   stopActiveTracking,
@@ -55,14 +55,25 @@ async function getExitStartedAt(driverId) {
 // Begin the grace period: stamp the start time, drop out of staging math now, and
 // switch the GPS task to the lighter exit-grace cadence.
 export async function startExitGrace(driverId, latestLocation) {
+  const fromStatus = store.getState().drivers.status;
+  const fromZoneId = store.getState().drivers.currentZoneId ?? null;
   const startedIso = new Date().toISOString();
+
   store.dispatch(setWorkAreaExitStartedAt(Date.now()));
   store.dispatch(setCurrentZone(null));
   store.dispatch(setStatus(DRIVER_STATUS.EXIT_GRACE));
 
-  await persistDriverStatus(driverId, DRIVER_STATUS.EXIT_GRACE, {
-    work_area_exit_started_at: startedIso,
-    current_zone_id: null,
+  // Route through transitionDriverState so the exit is audited. The default
+  // work_area_exit_started_at=null in transitionDriverState is overridden by patch.
+  await transitionDriverState({
+    driverId,
+    fromStatus,
+    toStatus:    DRIVER_STATUS.EXIT_GRACE,
+    fromZoneId,
+    toZoneId:    null,
+    source:      'exitGraceManager.startExitGrace',
+    reason:      'left_work_area',
+    patch:       { work_area_exit_started_at: startedIso },
   });
 
   // Not counted while in grace — clear immediately rather than waiting for TTL.
@@ -133,15 +144,27 @@ export async function completeExitToPassive(driverId, latestLocation) {
       ? classifyPassiveDistance(lat, lng)
       : DRIVER_STATUS.PASSIVE_FAR;
 
+  const fromStatus = store.getState().drivers.status;
+
   if (driverId) await clearDriverPresence(driverId);
   store.dispatch(clearWorkAreaExitStartedAt());
   store.dispatch(setCurrentZone(null));
   store.dispatch(setStatus(mode));
 
-  await persistDriverStatus(driverId, mode, {
-    work_area_exit_started_at: null,
-    work_area_exit_time: new Date().toISOString(),
-    current_zone_id: null,
+  await transitionDriverState({
+    driverId,
+    fromStatus,
+    toStatus:  mode,
+    fromZoneId: null,
+    toZoneId:  null,
+    source:    'exitGraceManager.completeExitToPassive',
+    reason:    'exit_grace_expired',
+    lat,
+    lng,
+    patch: {
+      work_area_exit_started_at: null,
+      work_area_exit_time: new Date().toISOString(),
+    },
   });
 
   await stopActiveTracking();
