@@ -20,10 +20,7 @@ import {
   stopGeofenceManager,
   getWaitSortValue,
 } from '../lib/geofenceEngine';
-import {
-  startTierManager,
-  refreshZoneCache,
-} from '../lib/tierManager';
+import { startTierManager } from '../lib/tierManager';
 import { setSort } from '../store/zonesSlice';
 import { getDriverPositionInZone } from '../lib/zoneStatsEngine';
 import { initNotifications } from '../lib/notificationService';
@@ -63,9 +60,6 @@ export default function HomeScreen() {
     );
     startTierManager().catch((err) =>
       console.warn('[HomeScreen] startTierManager failed', err)
-    );
-    refreshZoneCache().catch((err) =>
-      console.warn('[HomeScreen] refreshZoneCache failed', err)
     );
   }, []);
 
