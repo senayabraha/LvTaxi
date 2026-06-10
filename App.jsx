@@ -122,8 +122,14 @@ function Root() {
   const dispatch = useDispatch();
   const session = useSelector((s) => s.auth.session);
   const isLoading = useSelector((s) => s.auth.isLoading);
+  const profileFetching = useSelector((s) => s.auth.profileFetching);
   const profile = useSelector((s) => s.drivers.profile);
   const passwordRecovery = useSelector((s) => s.auth.passwordRecovery);
+
+  // Stable identifiers for the launch effect (LIFE-5): using object identity
+  // caused TOKEN_REFRESHED (hourly) to retrigger reconcile and task restarts.
+  const userId = session?.user?.id ?? null;
+  const profileLoaded = !!profile;
 
   useEffect(() => {
     const unsub = setupSessionListener(dispatch);
@@ -131,7 +137,7 @@ function Root() {
   }, [dispatch]);
 
   useEffect(() => {
-    if (session && profile) {
+    if (userId && profileLoaded) {
       startTierManager().catch((err) =>
         console.warn('[App] startTierManager failed', err)
       );
@@ -154,11 +160,17 @@ function Root() {
       stopOfflineRetryManager();
     }
     return () => stopOfflineRetryManager();
-  }, [session, profile]);
+  }, [userId, profileLoaded]);
 
   if (isLoading) return <SplashScreen />;
 
   const showMain = !!session && !!profile;
+  // Reconnecting: session is valid but the profile fetch is still in-flight
+  // (including retry attempts after a network blip). Show SplashScreen rather
+  // than bouncing the driver to the login screen (LIFE-4).
+  const isReconnecting = !!session && !profile && profileFetching;
+
+  if (isReconnecting) return <SplashScreen />;
 
   return (
     <NavigationContainer theme={navTheme}>

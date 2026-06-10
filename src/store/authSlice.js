@@ -5,6 +5,10 @@ const initialState = {
   isLoading: true,
   isAdmin: false,
   passwordRecovery: false,
+  // True while a profile fetch is in-flight (including retry attempts).
+  // Root uses this to show a reconnecting screen instead of AuthStack when a
+  // session exists but the profile hasn't loaded yet (LIFE-4).
+  profileFetching: false,
 };
 
 const authSlice = createSlice({
@@ -28,6 +32,9 @@ const authSlice = createSlice({
     setPasswordRecovery(state, action) {
       state.passwordRecovery = !!action.payload;
     },
+    setProfileFetching(state, action) {
+      state.profileFetching = !!action.payload;
+    },
   },
 });
 
@@ -37,5 +44,6 @@ export const {
   setIsAdmin,
   setLoading,
   setPasswordRecovery,
+  setProfileFetching,
 } = authSlice.actions;
 export default authSlice.reducer;
