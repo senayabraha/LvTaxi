@@ -36,7 +36,16 @@ const STATUS_DEFAULT_SORT = {
 
 export default function HomeScreen() {
   const dispatch = useDispatch();
-  const { allZones, stats, loading, error, refresh, refreshing, statsUpdatedAt } =
+  const {
+    allZones,
+    stats,
+    loading,
+    error,
+    refresh,
+    refreshing,
+    statsUpdatedAt,
+    statsDegraded,
+  } =
     useZones();
   const activeSort = useSelector((s) => s.zones.activeSort);
   const status = useSelector((s) => s.drivers.status);
@@ -194,7 +203,11 @@ export default function HomeScreen() {
         <Text className="text-accent text-2xl font-bold">🚕 LvTaxi</Text>
       </View>
 
-      <ConnectionBanner updatedAt={statsUpdatedAt} error={error} />
+      <ConnectionBanner
+        updatedAt={statsUpdatedAt}
+        error={error}
+        statsDegraded={statsDegraded}
+      />
 
       <SortBar />
 

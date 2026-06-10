@@ -8,6 +8,7 @@ import {
   updateZoneStat,
   setLoading,
   setError,
+  setStatsDegraded,
 } from '../store/zonesSlice';
 import {
   loadStatsCache,
@@ -46,6 +47,7 @@ export function useZones() {
   const stats = useSelector((s) => s.zones.stats);
   const loading = useSelector((s) => s.zones.loading);
   const error = useSelector((s) => s.zones.error);
+  const statsDegraded = useSelector((s) => s.zones.statsDegraded);
   const [refreshing, setRefreshing] = useState(false);
   const [statsUpdatedAt, setStatsUpdatedAt] = useState(null);
   const cancelledRef = useRef(false);
@@ -54,14 +56,15 @@ export function useZones() {
   const pollTimerRef = useRef(null);
   const presenceDebounceRef = useRef(null);
 
-  // Merge an array of live-stats rows into Redux (same shape as updateZoneStat).
-  const mergeLiveStats = useCallback(
-    (rows) => {
-      if (!rows?.length) return;
+  // Full snapshot/RPC loads are authoritative: replace the map so zones omitted
+  // by the backend do not keep stale counts. Realtime events still merge one row.
+  const applyFullStats = useCallback(
+    (rows, { degraded = false } = {}) => {
+      if (!rows) return;
       const merged = {};
       for (const row of rows) merged[row.zone_id] = row;
-      // Dispatch each row so zonesSlice.updateZoneStat handles it normally.
-      for (const row of rows) dispatch(updateZoneStat(row));
+      dispatch(setStats(rows));
+      dispatch(setStatsDegraded(degraded));
       setStatsUpdatedAt(Date.now());
       saveStatsCache(merged);
     },
@@ -78,23 +81,23 @@ export function useZones() {
     if (cancelledRef.current) return;
     if (!error && data && data.length > 0) {
       // Remap zone_id column to match the RPC shape (zone_id is the PK here too).
-      mergeLiveStats(data);
+      applyFullStats(data, { degraded: false });
       return;
     }
     // Snapshot empty or unavailable — fall back to the RPC.
     const rows = await fetchLiveZoneStats();
     if (!cancelledRef.current && rows) {
-      mergeLiveStats(rows);
+      applyFullStats(rows, { degraded: false });
     }
-  }, [mergeLiveStats]);
+  }, [applyFullStats]);
 
   const loadLiveStats = useCallback(async () => {
     if (cancelledRef.current) return;
     const rows = await fetchLiveZoneStats();
     if (!cancelledRef.current && rows) {
-      mergeLiveStats(rows);
+      applyFullStats(rows, { degraded: false });
     }
-  }, [mergeLiveStats]);
+  }, [applyFullStats]);
 
   const load = useCallback(
     async ({ showLoading = true } = {}) => {
@@ -123,24 +126,20 @@ export function useZones() {
 
         if (snapshotRows.length > 0) {
           // Primary path: use the cheap snapshot table (refreshed every ~10 s by pg_cron).
-          mergeLiveStats(snapshotRows);
+          applyFullStats(snapshotRows, { degraded: false });
         } else {
           // Snapshot empty or migration not applied yet — fall back to the heavy RPC.
           const liveStats = await fetchLiveZoneStats();
           if (!cancelledRef.current) {
             if (liveStats) {
-              mergeLiveStats(liveStats);
+              applyFullStats(liveStats, { degraded: false });
             } else {
               // Last resort: legacy zone_stats table.
               const { data: statsRows, error: statsErr } = await supabase
                 .from('zone_stats')
                 .select('*');
               if (!statsErr && statsRows) {
-                dispatch(setStats(statsRows));
-                const statsMap = {};
-                for (const r of statsRows) statsMap[r.zone_id] = r;
-                saveStatsCache(statsMap);
-                setStatsUpdatedAt(Date.now());
+                applyFullStats(statsRows, { degraded: true });
               }
             }
           }
@@ -160,7 +159,7 @@ export function useZones() {
         if (showLoading) dispatch(setLoading(false));
       }
     },
-    [dispatch, mergeLiveStats]
+    [dispatch, applyFullStats]
   );
 
   const refresh = useCallback(async () => {
@@ -261,5 +260,6 @@ export function useZones() {
     refresh,
     refreshing,
     statsUpdatedAt,
+    statsDegraded,
   };
 }

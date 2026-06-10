@@ -12,7 +12,11 @@ function formatAgo(ms) {
   return `${h}h ago`;
 }
 
-export default function ConnectionBanner({ updatedAt, error }) {
+export default function ConnectionBanner({
+  updatedAt,
+  error,
+  statsDegraded = false,
+}) {
   const [online, setOnline] = useState(true);
 
   useEffect(() => {
@@ -25,18 +29,23 @@ export default function ConnectionBanner({ updatedAt, error }) {
     return () => sub();
   }, []);
 
-  if (online && !error) return null;
+  if (online && !error && !statsDegraded) return null;
+
   const age = updatedAt ? Date.now() - updatedAt : null;
-  // Driver-facing wording only: communicate that LIVE ZONE DATA may be delayed.
-  // This is intentionally about zone counts/waits, NOT raw GPS upload status —
-  // drivers should never see internal trajectory batching details.
-  const label = !online ? 'Reconnecting…' : 'Connection error';
+  const label = !online
+    ? 'Reconnecting...'
+    : statsDegraded
+      ? 'Showing cached stats — live data unavailable.'
+      : 'Connection error';
   const detail = !online
     ? `Live data may be delayed · Using cached zone data (${formatAgo(age)})`
-    : `Live data may be delayed · Last updated ${formatAgo(age)}`;
+    : statsDegraded
+      ? `Last updated ${formatAgo(age)}`
+      : `Live data may be delayed · Last updated ${formatAgo(age)}`;
+
   return (
     <View
-      style={{ backgroundColor: !online ? '#EAB308' : '#EF4444' }}
+      style={{ backgroundColor: !online || statsDegraded ? '#EAB308' : '#EF4444' }}
       className="px-4 py-2"
     >
       <Text className="text-bg text-xs font-semibold">

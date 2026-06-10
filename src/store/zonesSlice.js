@@ -8,6 +8,7 @@ const initialState = {
   activeSort: SORT_OPTIONS.NEAREST,
   loading: false,
   error: null,
+  statsDegraded: false,
 };
 
 const zonesSlice = createSlice({
@@ -66,6 +67,9 @@ const zonesSlice = createSlice({
     setError(state, action) {
       state.error = action.payload;
     },
+    setStatsDegraded(state, action) {
+      state.statsDegraded = action.payload;
+    },
   },
 });
 
@@ -77,6 +81,7 @@ export const {
   setTop20Zones,
   setLoading,
   setError,
+  setStatsDegraded,
 } = zonesSlice.actions;
 
 export default zonesSlice.reducer;
