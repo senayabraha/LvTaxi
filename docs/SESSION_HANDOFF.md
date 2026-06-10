@@ -1,94 +1,114 @@
-# Session handoff — LV Taxi eligibility/counting hardening
+# Session Handoff - LV Taxi Eligibility/Counting Hardening
 
 Living context for continuing work in a new session. Update as things change.
-Last updated: 2026-06-09.
+Last updated: 2026-06-10.
 
-## Where things stand (done & live)
+## Where Things Stand
 
-**P0 — Issues 1–5 + Phase 0 security: COMPLETE, merged to `main`, applied to prod DB.**
+P0, P1, P2, and P3 are complete on `main` as local commits. P2 was already
+complete and merged before this session; P3 was completed in this session.
 
-- **Phase 0 security** (migration `019`): dropped world-readable `all_read_presence`
-  (own-row + admin read), revoked `anon` on `get_zone_live_stats`,
-  `clear_driver_presence` refreshes `last_ping_at`.
-- **Issue 1** — manual staging requires polygon confirmation. New
-  `src/lib/polygonConfirmation.js` (fail-closed; tight `radius_meters` fallback,
-  not flat 200 m), shared by `geofenceEngine.verifyWithPolygon` + `ImStagingButton`.
-  Pure geo in `src/lib/geoMath.js`.
-- **Issue 2** — `cars_staged` counts only confirmed `STAGING`; new
-  `nearby_unconfirmed` counts `UNKNOWN` (migration `020`). JS mirror helpers in
-  `constants.js`; UI shows "staged" + "+N nearby".
-- **Issue 3** — accuracy + Android `mocked` gate. `MAX_PRESENCE_ACCURACY_METERS=50`
-  in `constants.js`; pure `src/lib/presenceGate.js`; threaded through every
-  heartbeat caller; `locationEngine` surfaces `loc.mocked`.
-- **Issue 4** — one open `zone_visits` row per driver (migration `021`: unique
-  partial index + idempotent `ensure_open_visit`). `transitionToStaged` is the sole
-  visit owner and returns the visit id; geofence/poll/manual all route through it.
-- **Issue 5** — server-side eligibility authority (migrations `022`+`023`): PostGIS
-  `staging_zones.geom` (+ `max_accuracy_meters`), `upsert_driver_presence_validated`
-  (recomputes true zone via `ST_Contains`, enforces accuracy ceiling),
-  `eligible_driver_presence` view (9 conditions), `get_zone_live_stats.cars_staged`
-  reads from it. Pure JS mirror: `src/lib/eligibility.js`.
+## Phase 0 / P0
 
-**Two post-apply DB bug fixes (timestamped migrations, applied):**
-- `20260608211308_fix_validated_presence_search_path.sql` — PostGIS lives in the
-  `extensions` schema on Supabase, so functions calling `ST_*` need
-  `SET search_path = public, extensions` (user fixed `022` the same way; I fixed
-  `023`'s validated RPC + view).
-- `20260609182035_fix_get_zone_live_stats_ambiguous_zone_id.sql` — `RETURNS TABLE`
-  column names clashed with CTE columns; added `#variable_conflict use_column` +
-  qualified refs.
+- Security migration `019` locked down `driver_presence` reads to own-row/admin
+  access, revoked anonymous execution of `get_zone_live_stats()`, and refreshed
+  `last_ping_at` from `clear_driver_presence`.
+- Manual staging, geofence staging, and polygon confirmation share
+  `src/lib/polygonConfirmation.js`, with fail-closed polygon checks and a tight
+  radius fallback for polygon-less zones.
+- `cars_staged` counts confirmed `STAGING` only; `UNKNOWN` is reported as
+  `nearby_unconfirmed`.
+- Client GPS accuracy and Android mocked-location gates are in place.
+- Staging entry is centralized around one open `zone_visits` row per driver.
+- Server-side validated presence and eligibility were added with PostGIS
+  geometry, `upsert_driver_presence_validated`, `eligible_driver_presence`, and
+  a `get_zone_live_stats()` count path based on eligible presence.
 
-**All branches merged into `main`** (P0 as the base; the other branches' transition
-refactor/docs were already in `main` by content; only net-new was a
-`TrackingDebugPanel` tweak). Every branch verified 0-ahead of `main`.
+## P1 / P2 State Before This Session
 
-**DB verified healthy:** `get_zone_live_stats()` returns clean rows;
-40/40 active zones have polygons; migration history reconciled (27 rows: `001`–`024`
-+ baseline `20260606083233` + the two fixes).
+- P1 lifecycle/state-machine work is present in the repo: transition helpers,
+  cleanup on sign-out, exit-grace visit closure, orphan-visit preservation,
+  profile retry handling, stable launch-effect gating, transition audit table,
+  and device/session metadata migrations.
+- P2 migrations `019` through `027` were live before P3 started. The later
+  timestamped migrations include stale-presence cleanup and
+  `zone_live_stats_snapshot` with pg_cron refresh support.
+- Test suite baseline before P3 was reported as 92 passing.
 
-## How Supabase deploys now (important)
+## P3 Completed In This Session
 
-- The **GitHub integration auto-applies `supabase/migrations/*.sql` to production on
-  push to `main`.** History is reconciled, so it only runs genuinely-new migrations.
-- **New migrations MUST use a 14-digit UTC timestamp prefix**
-  (`YYYYMMDDHHMMSS_desc.sql`), later than baseline `20260606083233`. Numeric `NNN_`
-  is refused (sorts before baseline). Documented in `CLAUDE.md` +
-  `supabase/migrations/README.md`.
-- PostGIS is in the `extensions` schema → any function/view using `ST_*` needs
-  `extensions` on its search_path (and a session `SET search_path … extensions`
-  for DDL that references `ST_*`).
-- Append-only / non-destructive only. `supabase/schema.sql` is historical (not
-  auto-applied). `002` contains a destructive `delete from staging_zones` — never
-  let it replay.
+- **Issue 15 / DATA-1**: added
+  `20260610130000_028_zone_visits_classification_check.sql`.
+  Existing `zone_visits.classification` values are normalized to lowercase, then
+  constrained to `staging`, `drop_off`, `passing`, `unknown`, or `abandoned`.
+- **Issue 16 / DATA-2**: rewrote README setup instructions. New setup requires
+  applying `supabase/migrations/` in filename order via `supabase db push` or the
+  SQL editor. `supabase/schema.sql` is documented as historical only.
+- **Issue 17 / DATA-3**: grep confirmed no app, admin, or Edge Function code
+  reads `drivers.current_lat/current_lng`. Added
+  `20260610131000_029_drop_deprecated_driver_location_columns.sql`, redefined
+  `soft_delete_driver()` without the legacy columns, and dropped them.
+- **Issue 18 / DATA-4**: added `SAVE_TRAINING_DATA` to the offline visit
+  side-effect queue. Ambiguous-visit confirmation taps now replay on reconnect.
+- **Issue 19 / RT-2 + RT-3**: legacy stats fallback is marked degraded and the
+  driver sees "Showing cached stats — live data unavailable." Full snapshot/RPC
+  stats loads now replace the stats map so omitted zones do not retain stale
+  values.
+- **Issue 20 / RT-5**: removed the dead queue-position UI path and the
+  null-returning `getDriverPositionInZone()` export.
+- **Issue 21 / GEO-3**: geofence monitoring now uses nearest physical zones
+  regardless of active UI sort. Flow/Wait sorting remains UI-only.
+- **Issue 22 / GEO-5**: geofence confirmation now uses
+  `confirmStagingLocation()`, so malformed polygons fail closed and polygon-less
+  zones use the same tight radius fallback as manual staging.
 
-## Open / pending
+## Migration Notes
 
-- **First push-to-main safety check (one-time):** confirm the integration reports
-  nothing pending — especially `002` never "pending."
-- **Rebuild/redeploy the mobile app** so drivers run the new client code (DB is ready).
-- **P1 (not started):** Issue 6 centralized state machine + `driver_status_events`
-  audit; Issue 7 device/session identity on `driver_presence`; Issue 8 immediate
-  presence cleanup + pg_cron stale backstop; Issue 9 `driver_presence` realtime in
-  `useZones`.
-- **P2 (not started):** Issue 10 server-side clock-skew age; Issue 11 full per-zone
-  config columns; Issue 12 min-dwell-before-count; Issue 13 geofence 20-region cap;
-  Issue 14 materialized live stats (pg_cron, per user's choice).
-- Decisions already made: PostGIS available; scheduler = **pg_cron**; conflict
-  policy = **P0 as base**.
+- New migrations must use 14-digit UTC timestamp prefixes:
+  `YYYYMMDDHHMMSS_short_description.sql`.
+- Numeric `001` through `024` are legacy migrations. Timestamped migrations from
+  `025` onward are the live convention.
+- P3 created timestamped migrations with human issue numbers in the filename:
+  `_028_zone_visits_classification_check` and
+  `_029_drop_deprecated_driver_location_columns`.
+- `supabase/schema.sql` is historical and must not be used as current setup.
+- PostGIS functions/views need `public, extensions` search paths where they call
+  `ST_*`.
 
-## Key files
+## Tests Added In P3
 
-- Plan: `LvTaxi_Implementation_Plan.md` (root). Model doc: `docs/eligibility-and-counting-model.md`.
-- Migrations: `supabase/migrations/` (+ `README.md` convention).
-- Core logic: `src/lib/{polygonConfirmation,presenceGate,eligibility,geoMath,
-  presenceHeartbeat,geofenceEngine,driverStatusTransitions,zoneStatsEngine}.js`,
-  `src/lib/backgroundTracking/*`, `src/hooks/useZones.js`,
-  `src/components/{ImStagingButton,ZoneListItem,TrackingDebugPanel}.jsx`.
-- Tests: `npm test` (jest-expo; node env; transforms `@turf`). 49 pure-logic tests in
-  `src/lib/__tests__/`. Add tests for every pure-function change.
+- `src/lib/__tests__/visitProcessorOfflineQueue.test.js`
+- `src/store/__tests__/zonesSlice.test.js`
+- `src/lib/__tests__/geofenceEngine.test.js`
 
-## Working conventions
+Focused tests run during implementation:
 
-- Work on `main` directly (per `CLAUDE.md`); commit + push when asked. Supabase
-  project ref: `tcdrsuiemtktvtodypka`. The session DB is applied manually via SQL
-  editor / auto via push; this container has no DB credentials or Supabase CLI.
+- `npm.cmd test -- visitProcessorOfflineQueue.test.js --runInBand`
+- `npm.cmd test -- zonesSlice.test.js --runInBand`
+- `npm.cmd test -- geofenceEngine.test.js --runInBand`
+
+Final full-suite result after P3: `npm.cmd test -- --runInBand` passed with
+13 test suites and 100 tests. The count is higher than the pre-P3 92-test
+baseline because P3 added 8 focused regression tests.
+
+## Remaining Items Needing Real-Device Validation
+
+- Native geofence Enter/Exit events after installing the updated client,
+  especially nearest-20 monitoring independent of Flow/Wait sort.
+- Malformed/corrupt polygon behavior cannot be staged as confirmed `STAGING`;
+  drivers should fall back to unconfirmed/unknown behavior rather than being
+  counted.
+- Offline ambiguous-visit YES/NO confirmation while network is disabled, then
+  reconnect and confirm the queued training side effect replays.
+- Cached-stats degraded banner when snapshot/RPC live stats fail on device.
+- Background and force-close behavior around presence freshness, stale-presence
+  cleanup, and snapshot refresh timing.
+
+## Working Conventions
+
+- Work on `main` directly unless told otherwise.
+- One logical issue per commit.
+- Use append-only migrations only.
+- Do not edit already-applied migrations or `supabase/schema.sql`.
+- Commit and push only when requested. Supabase project ref:
+  `tcdrsuiemtktvtodypka`.
