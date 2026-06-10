@@ -1,14 +1,14 @@
-# LvTaxi — Phase 1
+# LvTaxi
 
-React Native (Expo) app that brings DT5-style staging zone intelligence to every Las Vegas taxi driver's phone.
-
-Phase 1 scope: project scaffold, Supabase auth (phone OTP + email), Supabase schema with RLS, seed data, and a working dark-themed home screen wired to live `zone_stats` via Supabase Realtime.
+Expo/Supabase app for Las Vegas taxi staging intelligence: live staging-zone
+counts, wait estimates, geofence-backed driver presence, visit history, and
+driver/admin operations.
 
 ## Prerequisites
 
 - Node.js 18+
-- A Supabase project (https://supabase.com — free tier is fine)
-- Expo Go on your phone, or Android Studio / Xcode for simulators
+- A Supabase project
+- Expo Go, an Expo development build, or Android Studio / Xcode simulators
 
 ## 1. Install
 
@@ -17,23 +17,55 @@ cd C:\Users\senup\Documents\LvTaxi
 npm install
 ```
 
-## 2. Supabase setup
+## 2. Supabase Setup
 
-1. Create a project at https://supabase.com.
-2. In the Supabase dashboard:
-   - **SQL editor** → paste `supabase/schema.sql` → run.
-   - **Authentication → Providers → Phone** → enable. Wire up Twilio (or your provider of choice) for SMS.
-   - **Authentication → Providers → Email** → enable (default is fine).
-3. Grab credentials from **Project settings → API**:
-   - Project URL
-   - `publishable` key (formerly `anon` public)
-   - `secret` key (formerly `service_role`; used only by the seed script, never shipped to clients)
+Create a Supabase project, then apply the database migrations in
+`supabase/migrations/` in filename order.
+
+Do not set up a new database by running only `supabase/schema.sql`. That file is
+a historical Phase-1 baseline and is missing the current `driver_presence`
+schema, live-stats RPC/snapshot objects, work areas, geofence/eligibility
+columns, and migrations `001` through the latest migration.
+
+Preferred local flow:
+
+```bash
+supabase link --project-ref <your-project-ref>
+supabase db push
+```
+
+Dashboard-only flow:
+
+1. Open Supabase **SQL editor**.
+2. Run each file in `supabase/migrations/` in filename order, starting with
+   `001_add_auth_columns.sql` and continuing through the latest migration.
+3. Confirm the migration history in the Supabase dashboard before running the
+   app.
+
+Migration naming convention:
+
+- `001` through `024` are legacy numeric migrations that already exist.
+- New migrations from `025` onward use a UTC timestamp prefix:
+  `YYYYMMDDHHMMSS_short_description.sql`.
+- Keep migrations append-only. Do not edit or re-run `supabase/schema.sql` for
+  current setup.
+
+In the Supabase dashboard, also enable:
+
+- **Authentication -> Providers -> Phone** with your SMS provider.
+- **Authentication -> Providers -> Email**.
+
+Grab credentials from **Project settings -> API**:
+
+- Project URL
+- `publishable` key (formerly `anon` public)
+- `secret` key (formerly `service_role`; used only by scripts, never shipped to clients)
 
 ## 3. Environment
 
 Copy `.env.example` to `.env` and fill in:
 
-```
+```bash
 EXPO_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 
@@ -41,15 +73,16 @@ SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_...
 ```
 
-The `EXPO_PUBLIC_*` vars get inlined into the app bundle at build time. The secret key is only read by the seed script.
+The `EXPO_PUBLIC_*` variables are inlined into the app bundle at build time. The
+secret key is only read by scripts.
 
-## 4. Seed the database
+## 4. Seed the Database
 
 ```bash
 npm run seed
 ```
 
-This inserts all 15 LV staging zones and mock `zone_stats` so the UI is not empty on first launch.
+This upserts the LV staging zones and initial stats rows.
 
 ## 5. Run
 
@@ -57,51 +90,23 @@ This inserts all 15 LV staging zones and mock `zone_stats` so the UI is not empt
 npm start
 ```
 
-Then press `a` for Android, `i` for iOS, or scan the QR with Expo Go.
+Then press `a` for Android, `i` for iOS, or scan the QR code with Expo Go.
 
-## Project structure
+## Project Structure
 
-```
+```text
 src/
-  screens/
-    SplashScreen.jsx     loading state while auth resolves
-    AuthScreen.jsx       phone OTP + email login
-    HomeScreen.jsx       sortable live zone list
-    ProfileScreen.jsx    profile + status + sign out
-  components/
-    StatusToggle.jsx     Active / Staged / Off Duty / Browsing
-    SortBar.jsx          Nearest / Flow / Wait
-    ZoneListItem.jsx     one row in the zone list
-  store/
-    index.js             Redux store
-    driversSlice.js      driver session, status, GPS
-    zonesSlice.js        zones, stats, active sort
-  lib/
-    supabase.js          Supabase client (AsyncStorage-backed session)
-    constants.js         15 LV staging zones, status + sort enums
-  hooks/
-    useAuth.js           session + profile + sign-in helpers
-    useZones.js          loads zones + subscribes to zone_stats realtime
+  components/            React Native UI components
+  hooks/                 app data hooks, including zone/stat loading
+  lib/                   Supabase, GPS, geofence, presence, and visit logic
+  screens/               app screens
+  store/                 Redux slices
 
 supabase/
-  schema.sql             all 7 tables + RLS policies + realtime publication
+  migrations/            required database setup; run in filename order
+  schema.sql             historical Phase-1 baseline, not current setup
+  functions/             Supabase Edge Functions
+
 scripts/
-  seed.js                upserts 15 zones and mock stats (service-role)
+  seed.js                upserts staging zones and mock stats
 ```
-
-## What works in Phase 1
-
-- Splash → Auth → Tabs flow with persistent sessions (AsyncStorage)
-- Phone OTP and email sign-in (sign-up included)
-- `drivers` row auto-created on first sign-in
-- Live zone list re-sorts when you tap Nearest / Flow / Wait
-- `zone_stats` updates broadcast in real time across all clients
-
-## What is *not* in Phase 1 (comes in Phase 2+)
-
-- Actual GPS tracking (the screen reads `currentLat`/`currentLng` from Redux but nothing writes them yet)
-- Kalman filter, geofencing, trajectory recording, classification
-- Push notifications
-- AI model
-
-These slot into the existing Redux shape and `useZones` channel without changes to Phase 1 files.
