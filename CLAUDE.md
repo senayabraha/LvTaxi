@@ -8,14 +8,17 @@
 
 ## Supabase migrations
 
-The Supabase GitHub integration auto-applies `supabase/migrations/*.sql` to the
-production database on push to `main`. To keep that working:
+Migrations are applied to production by **`.github/workflows/db-migrate.yml`**,
+which runs `supabase db push` on every push to `main` that touches
+`supabase/migrations/**`. Two GitHub repository secrets must exist:
+
+- `SUPABASE_ACCESS_TOKEN` — personal access token from supabase.com → Account → Access tokens
+- `SUPABASE_DB_PASSWORD` — from the Supabase dashboard → Settings → Database
+
+To keep the workflow working:
 
 - **Name new migrations with a 14-digit UTC timestamp prefix**:
-  `YYYYMMDDHHMMSS_description.sql` (later than the integration baseline
-  `20260606083233`). Never use the legacy `NNN_` numeric prefix for new
-  migrations — numeric versions sort before the baseline and the integration
-  refuses the push.
+  `YYYYMMDDHHMMSS_description.sql`. Never use the legacy `NNN_` numeric prefix.
 - Migrations are append-only and non-destructive: use `CREATE OR REPLACE`,
   `IF NOT EXISTS`, additive `ALTER`. Never edit or delete an already-applied
   migration; supersede it with a new one.

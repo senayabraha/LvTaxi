@@ -1,8 +1,9 @@
 # Supabase migrations
 
-The Supabase **GitHub integration** automatically applies every `*.sql` file in
-this folder to the production database **when commits land on `main`**. To keep
-that automatic apply working, follow these rules.
+The **`.github/workflows/db-migrate.yml` GitHub Actions workflow** automatically
+applies every `*.sql` file in this folder to the production database **when
+commits land on `main`** and the push touches `supabase/migrations/`. The
+workflow runs `supabase db push` via the Supabase CLI.
 
 ## Naming — use a UTC timestamp prefix (required for new migrations)
 
@@ -12,13 +13,12 @@ Name every **new** migration:
 YYYYMMDDHHMMSS_short_description.sql      e.g. 20260608191500_add_driver_flags.sql
 ```
 
-The 14-digit UTC timestamp is the migration *version*. It **must be later than
-the integration baseline `20260606083233`** so the runner applies it. Any real
-"now" timestamp satisfies this.
+The 14-digit UTC timestamp is the migration *version*. Use the current UTC time
+at creation — any real "now" timestamp works.
 
 > ⚠️ Do **not** use the legacy `NNN_` numeric prefix (`025_…`) for new
-> migrations. Numeric versions (`25`) sort *before* the timestamp baseline, so
-> the integration treats them as out-of-order and **refuses the whole push**.
+> migrations. Numeric versions sort before timestamp versions and can confuse
+> the CLI's version ordering.
 
 Generate one with:
 
@@ -45,13 +45,13 @@ supabase migration new short_description
   superseded by the integration baseline `20260606083233` and **not**
   auto-applied. Don't add new schema here.
 - `001_…`–`024_…` — the legacy numeric migrations that predate the integration.
-  They are already applied to the database; their versions are recorded as
-  applied via a one-time `supabase migration repair` so the integration ignores
-  them. Do not renumber or re-run them.
+  They are already applied to the database; their versions are recorded in
+  `supabase_migrations.schema_migrations` so `supabase db push` skips them.
+  Do not renumber or re-run them.
 
 ## How to ship a schema change
 
 1. Create `supabase/migrations/<timestamp>_<desc>.sql` (timestamp > baseline).
 2. Make it append-only / idempotent.
-3. Commit and push to `main` → the integration applies it to production.
+3. Commit and push to `main` → the `.github/workflows/db-migrate.yml` workflow runs `supabase db push` and applies it to production.
 4. Confirm in Supabase dashboard → Database → Migrations.
