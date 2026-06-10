@@ -13,6 +13,7 @@ import { Text } from 'react-native';
 // their TaskManager.defineTask(...) calls. Do not move these below component code.
 import './src/lib/backgroundTracking/passiveLocationTask';
 import './src/lib/backgroundTracking/activeLocationTask';
+import './src/lib/geofenceEngine'; // registers GEOFENCE_TASK for headless background relaunch (GEO-1)
 
 import { store } from './src/store';
 import { setupSessionListener } from './src/lib/sessionManager';
