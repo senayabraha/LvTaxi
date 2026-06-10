@@ -26,6 +26,8 @@ import { clearDriverPresence } from '../zoneStatsEngine';
 import { transitionDriverState } from '../driverStatusTransitions';
 import { classifyPassiveDistance } from '../workAreaGeometry';
 import { isExitGraceExpired } from '../presenceFreshness';
+import { stopRecording } from '../trajectoryRecorder';
+import { processZoneExit } from '../visitProcessor';
 import { recordTrackingDebug } from './trackingDebug';
 import {
   startPassiveTracking,
@@ -59,6 +61,45 @@ export async function startExitGrace(driverId, latestLocation) {
   const fromZoneId = store.getState().drivers.currentZoneId ?? null;
   const startedIso = new Date().toISOString();
 
+  // Close any open zone_visits row before clearing presence (LIFE-7).
+  // The visit is closed here rather than waiting for the next explicit geofence
+  // Exit event, which may never fire if the driver left via the work-area boundary
+  // rather than the zone polygon boundary.
+  if (driverId) {
+    const { data: openVisit } = await supabase
+      .from('zone_visits')
+      .select('id, zone_id, entered_at')
+      .eq('driver_id', driverId)
+      .is('exited_at', null)
+      .maybeSingle();
+
+    if (openVisit) {
+      const exitedAt = new Date().toISOString();
+      const dwellSeconds = openVisit.entered_at
+        ? Math.round((Date.now() - new Date(openVisit.entered_at).getTime()) / 1000)
+        : null;
+
+      await supabase
+        .from('zone_visits')
+        .update({ exited_at: exitedAt, dwell_seconds: dwellSeconds })
+        .eq('id', openVisit.id);
+
+      // Collect buffered GPS points and run classification. processZoneExit also
+      // calls clearPresenceSafe so the presence clear below is a safety net only.
+      const { gpsPoints } = stopRecording();
+      try {
+        await processZoneExit(
+          openVisit.id,
+          driverId,
+          openVisit.zone_id,
+          gpsPoints ?? []
+        );
+      } catch (err) {
+        console.warn('[exitGraceManager] processZoneExit failed', err);
+      }
+    }
+  }
+
   store.dispatch(setWorkAreaExitStartedAt(Date.now()));
   store.dispatch(setCurrentZone(null));
   store.dispatch(setStatus(DRIVER_STATUS.EXIT_GRACE));
@@ -76,7 +117,7 @@ export async function startExitGrace(driverId, latestLocation) {
     patch:       { work_area_exit_started_at: startedIso },
   });
 
-  // Not counted while in grace — clear immediately rather than waiting for TTL.
+  // Safety-net clear in case processZoneExit above did not run (no open visit).
   if (driverId) await clearDriverPresence(driverId);
 
   await startExitGraceTracking();
