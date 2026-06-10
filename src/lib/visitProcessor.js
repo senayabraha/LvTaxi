@@ -21,6 +21,7 @@ const SIDE_EFFECT = {
   SAVE_CLASSIFICATION: 'SAVE_CLASSIFICATION',
   RECORD_LOAD_EVENT: 'RECORD_LOAD_EVENT',
   UPSERT_DRIVER_HISTORY: 'UPSERT_DRIVER_HISTORY',
+  SAVE_TRAINING_DATA: 'SAVE_TRAINING_DATA',
 };
 
 // True when an RPC error means the function isn't deployed yet (so we can fall
@@ -357,6 +358,43 @@ async function upsertHistorySafe(driverId, zoneId, deltas, visitId) {
   return ok;
 }
 
+async function doSaveTrainingData(visitId, confirmedLabel) {
+  if (!visitId || !confirmedLabel) return true;
+
+  const { error: visitErr } = await supabase
+    .from('zone_visits')
+    .update({ driver_confirmed: true, confirmed_label: confirmedLabel })
+    .eq('id', visitId);
+  if (visitErr) {
+    console.warn('[visitProcessor] visit confirm failed', visitErr);
+    return false;
+  }
+
+  const { error: trajErr } = await supabase
+    .from('trajectories')
+    .update({ ground_truth: confirmedLabel })
+    .eq('visit_id', visitId);
+  if (trajErr) {
+    console.warn('[visitProcessor] trajectory ground truth failed', trajErr);
+    return false;
+  }
+
+  return true;
+}
+
+async function saveTrainingDataSafe({ visitId, confirmedLabel, extra }) {
+  const ok = await doSaveTrainingData(visitId, confirmedLabel);
+  if (!ok) {
+    await savePendingVisitSideEffect({
+      id: `${SIDE_EFFECT.SAVE_TRAINING_DATA}:${visitId}:${confirmedLabel}`,
+      type: SIDE_EFFECT.SAVE_TRAINING_DATA,
+      visit_id: visitId,
+      payload: { confirmedLabel, extra: extra ?? {} },
+    });
+  }
+  return ok;
+}
+
 // Presence clear is intentionally NOT queued: a stale queued clear could later
 // drop a driver who has since legitimately re-staged. If the immediate clear
 // fails we rely on the 90-second presence TTL to expire the row instead.
@@ -411,6 +449,8 @@ async function replaySideEffect(rec) {
     }
     case SIDE_EFFECT.UPSERT_DRIVER_HISTORY:
       return upsertHistory(rec.driver_id, rec.zone_id, rec.payload ?? {});
+    case SIDE_EFFECT.SAVE_TRAINING_DATA:
+      return doSaveTrainingData(rec.visit_id, rec.payload?.confirmedLabel);
     default:
       // Unknown/legacy type — drop it so it can't wedge the queue.
       return true;
@@ -444,31 +484,16 @@ export async function retryPendingVisitSideEffects() {
   return { replayed, failed };
 }
 
-// TODO(phase-2.1 follow-up): SAVE_TRAINING_DATA is NOT yet offline-queued. It is
-// only triggered by an explicit, online driver confirmation tap, so the offline
-// window is small — but a confirmation made just as the network drops can still
-// be lost. Add a SAVE_TRAINING_DATA side-effect type if this becomes important.
 export async function saveTrainingData(visitId, confirmedLabel, extra = {}) {
+  const ok = await saveTrainingDataSafe({ visitId, confirmedLabel, extra });
+  if (!ok) return;
+
   const visit = await fetchVisit(visitId);
-  if (!visit) return;
-
-  const { error: visitErr } = await supabase
-    .from('zone_visits')
-    .update({ driver_confirmed: true, confirmed_label: confirmedLabel })
-    .eq('id', visitId);
-  if (visitErr) console.warn('[visitProcessor] visit confirm failed', visitErr);
-
-  const { error: trajErr } = await supabase
-    .from('trajectories')
-    .update({ ground_truth: confirmedLabel })
-    .eq('visit_id', visitId);
-  if (trajErr) console.warn('[visitProcessor] trajectory ground truth failed', trajErr);
-
-  const enteredAt = visit.entered_at ? new Date(visit.entered_at) : new Date();
+  const enteredAt = visit?.entered_at ? new Date(visit.entered_at) : new Date();
   console.log('[visitProcessor] training data saved', {
     visitId,
-    driverId: visit.driver_id,
-    zoneId: visit.zone_id,
+    driverId: visit?.driver_id,
+    zoneId: visit?.zone_id,
     confirmedLabel,
     timeOfDay: enteredAt.getHours(),
     dayOfWeek: enteredAt.getDay(),
