@@ -19,7 +19,7 @@
 import * as TaskManager from 'expo-task-manager';
 import * as Sentry from '@sentry/react-native';
 import { store } from '../../store';
-import { setCurrentZone, setStatus } from '../../store/driversSlice';
+import { setStatus } from '../../store/driversSlice';
 import { DRIVER_STATUS } from '../constants';
 import {
   refreshWorkAreaCache,
@@ -28,12 +28,13 @@ import {
   getWorkAreaPolygonCount,
 } from '../workAreaGeometry';
 import { maybeSendPresenceHeartbeat } from '../presenceHeartbeat';
+import { transitionToActive } from '../driverStatusTransitions';
+import { enterStagingZone } from '../stagingService';
 import { LVTAXI_ACTIVE_LOCATION_TASK } from './trackingTaskNames';
 import { recordTrackingDebug } from './trackingDebug';
 import {
   getSessionUserId,
   getLatestLocation,
-  persistDriverStatus,
   safeDispatch,
   stopActiveTracking,
 } from './backgroundTrackingService';
@@ -51,6 +52,9 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
   const loc = getLatestLocation(data);
   if (!loc?.coords) return;
   const { latitude: lat, longitude: lng, speed, accuracy, heading } = loc.coords;
+  // `mocked` is top-level on Android location objects (anti-spoof gate).
+  const mocked = loc.mocked === true;
+  const statusBefore = store.getState().drivers.status;
 
   const driverId = await getSessionUserId();
   if (!driverId) {
@@ -61,14 +65,82 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
   await refreshWorkAreaCache();
   recordTrackingDebug({
     lastBackgroundLocationAt: Date.now(),
+    lastActiveTaskRunAt: Date.now(),
     lastBackgroundLat: lat,
     lastBackgroundLng: lng,
     lastTask: 'active',
+    lastTaskStatusBefore: statusBefore,
     workAreaPolygonCount: getWorkAreaPolygonCount(),
   });
 
+  const insideWorkArea = isInsideWorkAreaPolygon(lat, lng);
+  const zone = detectStagingZoneFromPoint(lat, lng);
+
+  if (zone) {
+    const reason = insideWorkArea
+      ? 'staging_zone_detected_inside_work_area'
+      : 'staging_zone_overrode_work_area_outside';
+    const desiredStatus = DRIVER_STATUS.STAGED;
+    recordTrackingDebug({
+      insideWorkArea,
+      detectedZoneId: zone.id,
+      detectedZoneName: zone.name,
+      lastTaskDesiredStatus: desiredStatus,
+      lastTaskDecisionReason: reason,
+    });
+
+    await clearExitGrace(driverId);
+    const current = store.getState().drivers;
+    const needsTransition =
+      current.status !== DRIVER_STATUS.STAGED ||
+      current.currentZoneId !== zone.id ||
+      !current.isInsideZone;
+
+    let heartbeatSent = false;
+    if (needsTransition) {
+      // enterStagingZone: transition + reset heartbeat throttle + start recording
+      // + forced presence write. Ensures exactly one open zone_visits row so
+      // the poll path produces dwell history (CNT-1/CNT-2, Issue 7).
+      const stagingResult = await enterStagingZone({
+        driverId,
+        zoneId: zone.id,
+        zone,
+        source: 'activeLocationTask',
+        lat, lng, speed, accuracy, heading, mocked,
+        skipTaskRestart: true,
+      });
+      heartbeatSent = stagingResult.heartbeatSent;
+    } else {
+      // Already staged in this zone — throttled heartbeat to keep presence fresh.
+      heartbeatSent = await maybeSendPresenceHeartbeat({
+        driverId,
+        zoneId: zone.id,
+        classification: 'STAGING',
+        lat, lng, speed, accuracy, heading, mocked,
+      });
+    }
+
+    recordTrackingDebug({
+      insideWorkArea,
+      detectedZoneId: zone.id,
+      detectedZoneName: zone.name,
+      lastStatus: desiredStatus,
+      lastTaskStatusAfter: store.getState().drivers.status,
+      lastTaskDecisionReason: reason,
+      ...(heartbeatSent ? { lastHeartbeatAt: Date.now() } : {}),
+    });
+    return;
+  }
+
   // ── Outside the work area → exit grace (timestamp-based, not counted) ───────
-  if (!isInsideWorkAreaPolygon(lat, lng)) {
+  if (!insideWorkArea) {
+    recordTrackingDebug({
+      insideWorkArea: false,
+      detectedZoneId: null,
+      detectedZoneName: null,
+      lastTaskDesiredStatus: DRIVER_STATUS.EXIT_GRACE,
+      lastTaskDecisionReason: 'outside_work_area_no_staging_zone',
+    });
     await evaluateExitGrace(driverId, { lat, lng });
     return;
   }
@@ -76,21 +148,25 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
   // ── Inside the work area: cancel any in-flight exit grace (re-entry) ────────
   await clearExitGrace(driverId);
 
-  const zone = detectStagingZoneFromPoint(lat, lng);
-  const desiredStatus = zone ? DRIVER_STATUS.STAGED : DRIVER_STATUS.ACTIVE;
-  const desiredZone = zone ? zone.id : null;
+  const desiredStatus = DRIVER_STATUS.ACTIVE;
+  const desiredZone = null;
+  recordTrackingDebug({
+    insideWorkArea: true,
+    detectedZoneId: desiredZone,
+    detectedZoneName: null,
+    lastTaskDesiredStatus: desiredStatus,
+    lastTaskDecisionReason: 'inside_work_area_no_staging_zone',
+  });
 
   const prevStatus = store.getState().drivers.status;
   const prevZone = store.getState().drivers.currentZoneId ?? null;
   const changed = prevStatus !== desiredStatus || prevZone !== desiredZone;
 
-  safeDispatch(setCurrentZone(desiredZone));
-
   if (changed) {
     // Only touch the drivers row on a real transition — not every 5s fix.
-    await persistDriverStatus(driverId, desiredStatus, {
-      current_zone_id: desiredZone,
-      work_area_exit_started_at: null,
+    await transitionToActive(driverId, {
+      source: 'activeLocationTask',
+      skipTaskRestart: true,
     });
   } else {
     // Keep Redux in sync without a Supabase write.
@@ -102,19 +178,22 @@ TaskManager.defineTask(LVTAXI_ACTIVE_LOCATION_TASK, async ({ data, error }) => {
   const sent = await maybeSendPresenceHeartbeat({
     driverId,
     zoneId: desiredZone,
-    classification: zone ? 'STAGING' : 'ACTIVE',
+    classification: 'ACTIVE',
     lat,
     lng,
     speed,
     accuracy,
     heading,
+    mocked,
   });
 
   recordTrackingDebug({
     insideWorkArea: true,
     detectedZoneId: desiredZone,
-    detectedZoneName: zone ? zone.name : null,
+    detectedZoneName: null,
     lastStatus: desiredStatus,
-    lastHeartbeatAt: sent ? Date.now() : undefined,
+    lastTaskStatusAfter: store.getState().drivers.status,
+    lastTaskDecisionReason: 'inside_work_area_no_staging_zone',
+    ...(sent ? { lastHeartbeatAt: Date.now() } : {}),
   });
 });

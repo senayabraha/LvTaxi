@@ -1,15 +1,17 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import * as turf from '@turf/turf';
 import * as Sentry from '@sentry/react-native';
 import { store } from '../store';
-import { zoneEntered, zoneExited } from '../store/driversSlice';
+import { zoneExited } from '../store/driversSlice';
 import { setTop20Zones } from '../store/zonesSlice';
 import { supabase } from './supabase';
 import { getDistanceMeters } from './locationEngine';
-import { startRecording, stopRecording } from './trajectoryRecorder';
+import { stopRecording } from './trajectoryRecorder';
 import { processZoneExit } from './visitProcessor';
-import { maybeSendPresenceHeartbeat } from './presenceHeartbeat';
+import { enterStagingZone } from './stagingService';
+import { clearDriverPresence } from './zoneStatsEngine';
+import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
+import { pointInZonePolygon } from './polygonConfirmation';
 import { DRIVER_STATUS, SORT_OPTIONS } from './constants';
 
 export const GEOFENCE_TASK = 'LVTAXI_GEOFENCE_TASK';
@@ -29,90 +31,121 @@ let lastGeofenceUpdateAt = 0;
 let pendingDebounceTimer = null;
 let isRecomputing = false;
 
+function zoneDebugBase(zoneId, zone, extra = {}) {
+  return {
+    geofenceEventAt: Date.now(),
+    geofenceZoneId: zoneId,
+    geofenceZoneName: zone?.name ?? null,
+    ...extra,
+  };
+}
+
+async function getHeartbeatPoint() {
+  const drivers = store.getState().drivers;
+  if (drivers.currentLat != null && drivers.currentLng != null) {
+    return {
+      lat: drivers.currentLat,
+      lng: drivers.currentLng,
+      speed: drivers.speed,
+      accuracy: drivers.rawAccuracy,
+      heading: drivers.heading,
+      mocked: drivers.mocked === true,
+    };
+  }
+
+  try {
+    const pos = await Location.getLastKnownPositionAsync({ maxAge: 30_000 });
+    if (pos?.coords) {
+      return {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        speed: pos.coords.speed,
+        accuracy: pos.coords.accuracy,
+        heading: pos.coords.heading,
+        mocked: pos.mocked === true,
+      };
+    }
+  } catch (err) {
+    console.warn('[geofenceEngine] heartbeat location lookup failed', err);
+  }
+
+  return null;
+}
+
 function getZoneById(id) {
   if (activeZoneById.has(id)) return activeZoneById.get(id);
   const all = store.getState().zones.allZones;
   return all.find((z) => z.id === id) ?? null;
 }
 
-// Hybrid layer: native circle wakes us up, polygon refines.
-// Returns true if no polygon (trust the circle).
+// Hybrid layer: native circle wakes us up, polygon refines. Delegates to the
+// shared confirmation helper so the manual ("I'm Staging") path and this geofence
+// path use one implementation.
+//   • No polygon  → true (trust the native circle that woke us — this path is
+//                   only reached for zones with a circle geofence anyway).
+//   • Has polygon → must contain the point; a malformed-polygon error is
+//                   fail-closed (helper returns false) so we never confirm
+//                   staging on corrupt data.
 function verifyWithPolygon(zone, lat, lng) {
   if (!zone) return true;
-  const polygon = zone.use_driven_polygon
-    ? zone.driven_polygon
-    : zone.drawn_polygon;
-  if (!polygon) return true;
-  try {
-    return turf.booleanPointInPolygon(turf.point([lng, lat]), polygon);
-  } catch (err) {
-    console.warn('[geofenceEngine] polygon check failed', err);
-    return true;
-  }
+  const inside = pointInZonePolygon(zone, lat, lng);
+  return inside === null ? true : inside;
 }
 
 async function completeHandleEnter(zoneId, zone, driverId) {
-  // Set sentinel BEFORE any async work so the handleEnter guard keeps re-fires out
-  // even while the insert is in flight.
+  // Set sentinel BEFORE any async work so the handleEnter guard keeps re-fires
+  // out even while the staging service is in flight.
   activeVisits.set(zoneId, null);
-  store.dispatch(zoneEntered(zoneId));
+  recordTrackingDebug(
+    zoneDebugBase(zoneId, zone, { geofenceLastEvent: 'geofence_polygon_confirmed' })
+  );
 
-  let visitId = null;
-  if (driverId) {
-    const { data, error } = await supabase
-      .from('zone_visits')
-      .insert({
-        driver_id: driverId,
-        zone_id: zoneId,
-        entered_at: new Date().toISOString(),
-      })
-      .select('id')
-      .single();
-    if (error) {
-      console.warn('[geofenceEngine] insert zone_visit failed', error);
-    } else {
-      visitId = data.id;
-      activeVisits.set(zoneId, visitId);
-    }
-  }
+  // Resolve a position for the forced heartbeat before handing off to the
+  // staging service (which sends it internally).
+  const point = await getHeartbeatPoint();
 
-  // Live counts come from active_driver_presence — no legacy counter here.
-  // Force a presence write immediately on zone enter so the driver is counted
-  // without waiting for the next throttled heartbeat tick.
-  const drivers = store.getState().drivers;
-  const classification =
-    drivers.status === DRIVER_STATUS.STAGED ? 'STAGING' : 'UNKNOWN';
-  if (driverId && drivers.currentLat != null && drivers.currentLng != null) {
-    maybeSendPresenceHeartbeat({
-      driverId,
-      zoneId,
-      classification,
-      lat: drivers.currentLat,
-      lng: drivers.currentLng,
-      speed: drivers.speed,
-      accuracy: drivers.rawAccuracy,
-      heading: drivers.heading,
-      visitId,
-      force: true,
-    }).catch((err) =>
-      console.warn('[geofenceEngine] presence upsert on enter failed', err)
-    );
-  }
+  // enterStagingZone: transition + reset throttle + start recording + forced heartbeat.
+  const result = await enterStagingZone({
+    driverId,
+    zoneId,
+    zone,
+    source: 'geofenceEngine.completeHandleEnter',
+    lat:      point?.lat  ?? null,
+    lng:      point?.lng  ?? null,
+    speed:    point?.speed ?? null,
+    accuracy: point?.accuracy ?? null,
+    heading:  point?.heading ?? null,
+    mocked:   point?.mocked ?? false,
+  });
+  const visitId = result.visitId ?? null;
+  if (visitId) activeVisits.set(zoneId, visitId);
 
-  startRecording(
-    visitId,
-    zone ? { lat: zone.lat, lng: zone.lng } : null
+  recordTrackingDebug(
+    zoneDebugBase(zoneId, zone, {
+      geofenceLastEvent: 'geofence_promoted_to_staged',
+      geofenceVisitId: visitId,
+      geofenceTransitionOk: result.ok,
+      geofenceHeartbeatSent: result.heartbeatSent,
+      lastStatus: DRIVER_STATUS.STAGED,
+      detectedZoneId: zoneId,
+      detectedZoneName: zone?.name ?? null,
+      workAreaExitStartedAt: null,
+      ...(result.heartbeatSent ? { lastHeartbeatAt: Date.now() } : {}),
+    })
   );
 }
 
 async function handleEnter(zoneId) {
+  const zone = getZoneById(zoneId);
+  const driverId = store.getState().auth.session?.user?.id ?? null;
+  recordTrackingDebug(
+    zoneDebugBase(zoneId, zone, { geofenceLastEvent: 'geofence_enter_received' })
+  );
+
   // Guard against Expo re-firing Enter or a polygon-retry racing with a fresh Enter.
   // activeVisits is set inside completeHandleEnter and cleared on exit; pendingEntries
   // is set while the polygon retry loop is running.
   if (activeVisits.has(zoneId) || pendingEntries.has(zoneId)) return;
-
-  const zone = getZoneById(zoneId);
-  const driverId = store.getState().auth.session?.user?.id ?? null;
 
   // Native geofence is wider than the actual lane — confirm with polygon.
   if (zone?.drawn_polygon || zone?.driven_polygon) {
@@ -186,6 +219,17 @@ async function handleExit(zoneId) {
   const dwellSeconds = entryTime
     ? Math.round((Date.now() - entryTime) / 1000)
     : null;
+
+  // Clear presence immediately on confirmed exit, regardless of whether a
+  // visitId is available. A driver staged via the active-task path (no geofence
+  // visit) would otherwise stay counted until the 90s TTL expires (LIFE-6).
+  if (driverId) {
+    try {
+      await clearDriverPresence(driverId);
+    } catch (err) {
+      console.warn('[geofenceEngine] clearPresence on exit failed', err);
+    }
+  }
 
   if (visitId) {
     const { error } = await supabase
@@ -329,6 +373,12 @@ async function applyGeofences(top20Zones) {
   } catch (err) {
     console.warn('[geofenceEngine] startGeofencingAsync failed', err);
   }
+}
+
+// Allow external callers (e.g. ImStagingButton) to register a manually-opened
+// visit so handleExit can find the visitId and process the zone exit correctly.
+export function registerActiveVisit(zoneId, visitId) {
+  activeVisits.set(zoneId, visitId);
 }
 
 export function updateActiveGeofences(top20Zones) {

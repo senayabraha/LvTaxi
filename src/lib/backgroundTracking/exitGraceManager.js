@@ -20,13 +20,16 @@ import {
   clearWorkAreaExitStartedAt,
   setCurrentZone,
 } from '../../store/driversSlice';
-import { DRIVER_STATUS, WORK_AREA_EXIT_GRACE_MS } from '../constants';
+import { DRIVER_STATUS } from '../constants';
 import { supabase } from '../supabase';
 import { clearDriverPresence } from '../zoneStatsEngine';
+import { transitionDriverState } from '../driverStatusTransitions';
 import { classifyPassiveDistance } from '../workAreaGeometry';
+import { isExitGraceExpired } from '../presenceFreshness';
+import { stopRecording } from '../trajectoryRecorder';
+import { processZoneExit } from '../visitProcessor';
 import { recordTrackingDebug } from './trackingDebug';
 import {
-  persistDriverStatus,
   startPassiveTracking,
   startExitGraceTracking,
   stopActiveTracking,
@@ -54,17 +57,67 @@ async function getExitStartedAt(driverId) {
 // Begin the grace period: stamp the start time, drop out of staging math now, and
 // switch the GPS task to the lighter exit-grace cadence.
 export async function startExitGrace(driverId, latestLocation) {
+  const fromStatus = store.getState().drivers.status;
+  const fromZoneId = store.getState().drivers.currentZoneId ?? null;
   const startedIso = new Date().toISOString();
+
+  // Close any open zone_visits row before clearing presence (LIFE-7).
+  // The visit is closed here rather than waiting for the next explicit geofence
+  // Exit event, which may never fire if the driver left via the work-area boundary
+  // rather than the zone polygon boundary.
+  if (driverId) {
+    const { data: openVisit } = await supabase
+      .from('zone_visits')
+      .select('id, zone_id, entered_at')
+      .eq('driver_id', driverId)
+      .is('exited_at', null)
+      .maybeSingle();
+
+    if (openVisit) {
+      const exitedAt = new Date().toISOString();
+      const dwellSeconds = openVisit.entered_at
+        ? Math.round((Date.now() - new Date(openVisit.entered_at).getTime()) / 1000)
+        : null;
+
+      await supabase
+        .from('zone_visits')
+        .update({ exited_at: exitedAt, dwell_seconds: dwellSeconds })
+        .eq('id', openVisit.id);
+
+      // Collect buffered GPS points and run classification. processZoneExit also
+      // calls clearPresenceSafe so the presence clear below is a safety net only.
+      const { gpsPoints } = stopRecording();
+      try {
+        await processZoneExit(
+          openVisit.id,
+          driverId,
+          openVisit.zone_id,
+          gpsPoints ?? []
+        );
+      } catch (err) {
+        console.warn('[exitGraceManager] processZoneExit failed', err);
+      }
+    }
+  }
+
   store.dispatch(setWorkAreaExitStartedAt(Date.now()));
   store.dispatch(setCurrentZone(null));
   store.dispatch(setStatus(DRIVER_STATUS.EXIT_GRACE));
 
-  await persistDriverStatus(driverId, DRIVER_STATUS.EXIT_GRACE, {
-    work_area_exit_started_at: startedIso,
-    current_zone_id: null,
+  // Route through transitionDriverState so the exit is audited. The default
+  // work_area_exit_started_at=null in transitionDriverState is overridden by patch.
+  await transitionDriverState({
+    driverId,
+    fromStatus,
+    toStatus:    DRIVER_STATUS.EXIT_GRACE,
+    fromZoneId,
+    toZoneId:    null,
+    source:      'exitGraceManager.startExitGrace',
+    reason:      'left_work_area',
+    patch:       { work_area_exit_started_at: startedIso },
   });
 
-  // Not counted while in grace — clear immediately rather than waiting for TTL.
+  // Safety-net clear in case processZoneExit above did not run (no open visit).
   if (driverId) await clearDriverPresence(driverId);
 
   await startExitGraceTracking();
@@ -74,6 +127,8 @@ export async function startExitGrace(driverId, latestLocation) {
     workAreaExitStartedAt: Date.now(),
     detectedZoneId: null,
     detectedZoneName: null,
+    lastTaskDesiredStatus: DRIVER_STATUS.EXIT_GRACE,
+    lastTaskStatusAfter: store.getState().drivers.status,
   });
 }
 
@@ -86,8 +141,7 @@ export async function evaluateExitGrace(driverId, latestLocation) {
     return DRIVER_STATUS.EXIT_GRACE;
   }
 
-  const elapsed = Date.now() - startedAt;
-  if (elapsed >= WORK_AREA_EXIT_GRACE_MS) {
+  if (isExitGraceExpired(startedAt)) {
     await completeExitToPassive(driverId, latestLocation);
     return store.getState().drivers.status;
   }
@@ -99,13 +153,16 @@ export async function evaluateExitGrace(driverId, latestLocation) {
     lastStatus: DRIVER_STATUS.EXIT_GRACE,
     insideWorkArea: false,
     workAreaExitStartedAt: startedAt,
+    lastTaskDesiredStatus: DRIVER_STATUS.EXIT_GRACE,
+    lastTaskStatusAfter: store.getState().drivers.status,
   });
   return DRIVER_STATUS.EXIT_GRACE;
 }
 
 // Driver re-entered the work area within the grace window: cancel the grace.
+// Always clears the Supabase column — do NOT gate on Redux state because after a
+// cold OS relaunch the Redux store is empty even if the DB still holds a timestamp.
 export async function clearExitGrace(driverId) {
-  if (!store.getState().drivers.workAreaExitStartedAt) return;
   store.dispatch(clearWorkAreaExitStartedAt());
   if (driverId) {
     const { error } = await supabase
@@ -128,15 +185,27 @@ export async function completeExitToPassive(driverId, latestLocation) {
       ? classifyPassiveDistance(lat, lng)
       : DRIVER_STATUS.PASSIVE_FAR;
 
+  const fromStatus = store.getState().drivers.status;
+
   if (driverId) await clearDriverPresence(driverId);
   store.dispatch(clearWorkAreaExitStartedAt());
   store.dispatch(setCurrentZone(null));
   store.dispatch(setStatus(mode));
 
-  await persistDriverStatus(driverId, mode, {
-    work_area_exit_started_at: null,
-    work_area_exit_time: new Date().toISOString(),
-    current_zone_id: null,
+  await transitionDriverState({
+    driverId,
+    fromStatus,
+    toStatus:  mode,
+    fromZoneId: null,
+    toZoneId:  null,
+    source:    'exitGraceManager.completeExitToPassive',
+    reason:    'exit_grace_expired',
+    lat,
+    lng,
+    patch: {
+      work_area_exit_started_at: null,
+      work_area_exit_time: new Date().toISOString(),
+    },
   });
 
   await stopActiveTracking();
@@ -148,6 +217,8 @@ export async function completeExitToPassive(driverId, latestLocation) {
     workAreaExitStartedAt: null,
     detectedZoneId: null,
     detectedZoneName: null,
+    lastTaskDesiredStatus: mode,
+    lastTaskStatusAfter: store.getState().drivers.status,
   });
   return mode;
 }

@@ -158,6 +158,17 @@ export const PRESENCE_TTL_MS = PRESENCE_TTL_SECONDS * 1000;
 export const PRESENCE_HEARTBEAT_INTERVAL_SECONDS = 25;
 export const PRESENCE_HEARTBEAT_INTERVAL_MS = PRESENCE_HEARTBEAT_INTERVAL_SECONDS * 1000;
 
+// ── GPS accuracy / anti-spoof gate ────────────────────────────────────────────
+// A presence heartbeat is dropped when the fix's horizontal accuracy is worse
+// than this many metres (and Android mock locations are rejected outright). LV
+// staging lanes are tiny (40–80 m) and sit beside garages/valet/rideshare, so a
+// 200–500 m fix must never count the same as a 10 m fix. This is the GLOBAL
+// ceiling; per-zone overrides (staging_zones.max_accuracy_meters) may tighten it.
+// Mirrored server-side in the eligibility view as
+// COALESCE(sz.max_accuracy_meters, 50) (migration 023) so a tampered client
+// cannot bypass it.
+export const MAX_PRESENCE_ACCURACY_METERS = 50;
+
 // ── Automatic background-tracking driver states ──────────────────────────────
 // These are the source of truth for the automatic LV Taxi tracking architecture.
 // The driver no longer taps "Start/End Shift": the app moves between these states
@@ -255,6 +266,20 @@ export function isActiveParticipationStatus(status) {
 // queue. ACTIVE (null zone), EXIT_GRACE and PASSIVE must never count.
 export function countsInStagingMath(status) {
   return status === DRIVER_STATUS.STAGED;
+}
+
+// ── Presence-classification counting (server/client reconciliation) ──────────
+// driver_presence.classification is the server-side counterpart of driver
+// status. These mirror the live_counts CTE in get_zone_live_stats()
+// (migration 020) so the JS and SQL agree on what each bucket means:
+//   'STAGING' → confirmed staged   → counts toward cars_staged
+//   'UNKNOWN' → near, not confirmed → counts toward nearby_unconfirmed (NOT staged)
+// A driver whose status is STAGED (countsInStagingMath) writes 'STAGING'.
+export function classificationCountsAsStaged(classification) {
+  return classification === 'STAGING';
+}
+export function classificationCountsAsNearby(classification) {
+  return classification === 'UNKNOWN';
 }
 
 export const SORT_OPTIONS = {

@@ -38,6 +38,11 @@ const zonesSlice = createSlice({
       state.stats[row.zone_id] = {
         ...existing,
         ...row,
+        // cars_staged and nearby_unconfirmed come only from the live RPC /
+        // snapshot table. A legacy zone_stats realtime event omits them, so
+        // preserve the good live value rather than blanking it (CNT-7).
+        cars_staged:        preserve('cars_staged'),
+        nearby_unconfirmed: preserve('nearby_unconfirmed'),
         estimated_wait_minutes: preserve('estimated_wait_minutes'),
         estimated_wait_min: preserve('estimated_wait_min'),
         estimated_wait_max: preserve('estimated_wait_max'),

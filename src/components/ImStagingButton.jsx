@@ -1,21 +1,25 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, Pressable, Modal, FlatList } from 'react-native';
-import { useDispatch, useSelector } from 'react-redux';
-import { setStatus, zoneEntered } from '../store/driversSlice';
+import { useSelector } from 'react-redux';
 import { DRIVER_STATUS } from '../lib/constants';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/locationEngine';
-import { maybeSendPresenceHeartbeat } from '../lib/presenceHeartbeat';
+import { registerActiveVisit } from '../lib/geofenceEngine';
+import { enterStagingZone } from '../lib/stagingService';
+import { confirmStagingLocation } from '../lib/polygonConfirmation';
 import { showToast } from '../lib/toast';
 
+// Coarse pre-filter only — how far from a zone centre we bother SHOWING it as a
+// staging candidate. Actual staging requires confirmStagingLocation() (polygon
+// containment, or a tight radius for polygon-less zones), never this radius.
 const NEAR_METERS = 200;
 
 export default function ImStagingButton() {
-  const dispatch = useDispatch();
   const status = useSelector((s) => s.drivers.status);
   const driverId = useSelector((s) => s.auth.session?.user?.id);
   const currentLat = useSelector((s) => s.drivers.currentLat);
   const currentLng = useSelector((s) => s.drivers.currentLng);
+  const rawAccuracy = useSelector((s) => s.drivers.rawAccuracy);
 
   const [busy, setBusy] = useState(false);
   const [confirmZone, setConfirmZone] = useState(null);
@@ -29,26 +33,36 @@ export default function ImStagingButton() {
       if (!zone) return;
       setBusy(true);
       try {
-        dispatch(setStatus(DRIVER_STATUS.STAGED));
-        dispatch(zoneEntered(zone.id));
-        if (driverId) {
-          await maybeSendPresenceHeartbeat({
-            driverId,
-            zoneId: zone.id,
-            classification: 'STAGING',
-            lat: currentLat,
-            lng: currentLng,
-            force: true,
-          });
+        // 0. Confirm the driver is actually IN the lane before staging. Manual
+        // staging must clear the same bar as the geofence path: inside the
+        // zone polygon, or (polygon-less zones) within the zone's tight radius —
+        // never a flat 200 m. Outside → do not stage.
+        const confirmation = confirmStagingLocation(zone, currentLat, currentLng);
+        if (!confirmation.confirmed) {
+          showToast(
+            `You're not in the ${zone.name} lane yet — drive into the lane to stage`,
+            'info'
+          );
+          return;
         }
-        if (driverId) {
-          const nowIso = new Date().toISOString();
-          const { error } = await supabase
-            .from('drivers')
-            .update({ status: DRIVER_STATUS.STAGED, last_seen: nowIso })
-            .eq('id', driverId);
-          if (error) console.warn('[ImStagingButton] update driver failed', error.message);
-        }
+
+        // 1. enterStagingZone: transition + reset heartbeat + start recording +
+        //    forced presence write. Ensures exactly one open zone_visits row so
+        //    rapid taps / geofence overlap no longer cause duplicates (CNT-5).
+        const result = await enterStagingZone({
+          driverId,
+          zoneId: zone.id,
+          zone,
+          source: 'ImStagingButton.stageAt',
+          lat: currentLat,
+          lng: currentLng,
+          accuracy: rawAccuracy,
+        });
+        const visitId = result.visitId ?? null;
+
+        // 2. Register with the geofence engine so handleExit finds this visit.
+        registerActiveVisit(zone.id, visitId);
+
         showToast(`Staged at ${zone.name}`, 'success');
       } finally {
         setBusy(false);
@@ -56,7 +70,7 @@ export default function ImStagingButton() {
         setPickerZones(null);
       }
     },
-    [dispatch, driverId, currentLat, currentLng]
+    [driverId, currentLat, currentLng, rawAccuracy]
   );
 
   const onPress = useCallback(async () => {
@@ -74,7 +88,9 @@ export default function ImStagingButton() {
     setBusy(true);
     const { data, error } = await supabase
       .from('staging_zones')
-      .select('id, name, lat, lng')
+      .select(
+        'id, name, lat, lng, radius_meters, drawn_polygon, driven_polygon, use_driven_polygon'
+      )
       .eq('active', true)
       .eq('is_coming_soon', false);
     setBusy(false);

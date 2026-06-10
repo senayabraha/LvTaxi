@@ -20,10 +20,7 @@ import {
   stopGeofenceManager,
   getWaitSortValue,
 } from '../lib/geofenceEngine';
-import {
-  startTierManager,
-  refreshZoneCache,
-} from '../lib/tierManager';
+import { startTierManager } from '../lib/tierManager';
 import { setSort } from '../store/zonesSlice';
 import { getDriverPositionInZone } from '../lib/zoneStatsEngine';
 import { initNotifications } from '../lib/notificationService';
@@ -64,24 +61,26 @@ export default function HomeScreen() {
     startTierManager().catch((err) =>
       console.warn('[HomeScreen] startTierManager failed', err)
     );
-    refreshZoneCache().catch((err) =>
-      console.warn('[HomeScreen] refreshZoneCache failed', err)
-    );
   }, []);
 
+  // Geofence manager lifecycle: start once on mount, stop on unmount only.
+  // DO NOT put this in the status effect — every status change would tear down
+  // and restart geofencing, resetting activeVisits/pendingEntries mid-visit.
   useEffect(() => {
-    // Geofencing always runs as a cheap OS wake-up layer; the polygon checks in
-    // the background tasks remain the source of truth for participation.
     startGeofenceManager();
-    // Zone notifications only matter while participating (inside / leaving the
-    // work area). Passive and tracking-disabled drivers get no zone alerts.
+    return () => {
+      stopGeofenceManager();
+    };
+  }, []);
+
+  // Notification engine: only run while the driver is participating.
+  useEffect(() => {
     if (isActiveParticipationStatus(status)) {
       startNotificationEngine();
     } else {
       stopNotificationEngine();
     }
     return () => {
-      stopGeofenceManager();
       stopNotificationEngine();
     };
   }, [status]);

@@ -16,6 +16,7 @@ const initialState = {
   currentLat: null,
   currentLng: null,
   rawAccuracy: null,
+  mocked: false,
   speed: null,
   heading: null,
   acceleration: null,
@@ -69,11 +70,12 @@ const driversSlice = createSlice({
       }
     },
     setLocation(state, action) {
-      const { lat, lng, accuracy, speed, heading, acceleration } =
+      const { lat, lng, accuracy, speed, heading, acceleration, mocked } =
         action.payload;
       state.currentLat = lat;
       state.currentLng = lng;
       state.rawAccuracy = accuracy ?? state.rawAccuracy;
+      if (mocked !== undefined) state.mocked = mocked === true;
       if (speed !== undefined) state.speed = speed;
       if (heading !== undefined) state.heading = heading;
       if (acceleration !== undefined) state.acceleration = acceleration;

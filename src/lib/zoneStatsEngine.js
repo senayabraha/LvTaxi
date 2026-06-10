@@ -1,5 +1,18 @@
 import { supabase } from './supabase';
 
+// Mirror of visitProcessor.isMissingFunctionError so calls degrade gracefully
+// when a migration has not been applied yet (the app must run either way).
+function isMissingFunctionError(error) {
+  if (!error) return false;
+  if (error.code === 'PGRST202') return true;
+  const msg = (error.message || '').toLowerCase();
+  return (
+    msg.includes('could not find the function') ||
+    msg.includes('schema cache') ||
+    (msg.includes('function') && msg.includes('does not exist'))
+  );
+}
+
 // ── Live stats (presence-based) ───────────────────────────────────────────────
 // Primary read path for live zone stats. Returns rows with the full shape:
 //   { zone_id, cars_staged, flow_rate_per_hour,
@@ -34,7 +47,7 @@ export async function upsertDriverPresence({
   heading,
   visitId,
 }) {
-  const { error } = await supabase.rpc('upsert_driver_presence', {
+  const args = {
     p_driver_id:      driverId,
     p_zone_id:        zoneId ?? null,
     p_classification: classification ?? 'ACTIVE',
@@ -44,8 +57,57 @@ export async function upsertDriverPresence({
     p_accuracy:       accuracy ?? null,
     p_heading:        heading ?? null,
     p_visit_id:       visitId ?? null,
-  });
+  };
+
+  // Prefer the server-validated RPC (migration 023): it recomputes the true zone
+  // via ST_Contains and enforces the accuracy ceiling, so a drifted/spoofed
+  // client cannot claim STAGING. Fall back to the legacy upsert only when the
+  // validated function isn't deployed yet (app must run pre-migration).
+  let { data, error } = await supabase.rpc('upsert_driver_presence_validated', args);
+  if (error && isMissingFunctionError(error)) {
+    ({ data, error } = await supabase.rpc('upsert_driver_presence', args));
+  }
   if (error) console.warn('[zoneStatsEngine] upsertDriverPresence failed', error);
+  // data is the last_ping_at timestamptz returned by the RPC (migration 018/023).
+  // null means neither RPC was deployed; caller should treat as unconfirmed.
+  return { error, lastPingAt: data ?? null };
+}
+
+// ── Idempotent open-visit ensurer (Issue 4 / CNT-1) ──────────────────────────
+// Both zone-entry detectors and the manual button call this so exactly one open
+// zone_visits row exists per driver. Returns the open visit id. Falls back to a
+// best-effort single insert if migration 021 isn't applied yet.
+export async function ensureOpenVisit(driverId, zoneId) {
+  if (!driverId || !zoneId) return { error: 'missing_args', visitId: null };
+
+  const { data, error } = await supabase.rpc('ensure_open_visit', {
+    p_driver_id: driverId,
+    p_zone_id: zoneId,
+  });
+
+  if (error && isMissingFunctionError(error)) {
+    // Pre-migration fallback: a single insert (no cross-zone dedupe guarantee).
+    const ins = await supabase
+      .from('zone_visits')
+      .insert({
+        driver_id: driverId,
+        zone_id: zoneId,
+        entered_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+    if (ins.error) {
+      console.warn('[zoneStatsEngine] ensureOpenVisit fallback insert failed', ins.error.message);
+      return { error: ins.error, visitId: null };
+    }
+    return { error: null, visitId: ins.data.id };
+  }
+
+  if (error) {
+    console.warn('[zoneStatsEngine] ensureOpenVisit failed', error.message);
+    return { error, visitId: null };
+  }
+  return { error: null, visitId: data ?? null };
 }
 
 export async function clearDriverPresence(driverId) {
@@ -69,18 +131,10 @@ export async function recordLoadEvent(zoneId) {
 // Read-only — counts open visits entered before driverEnteredAt.
 
 export async function getDriverPositionInZone(zoneId, driverEnteredAt) {
-  if (!driverEnteredAt) return null;
-  const { count, error } = await supabase
-    .from('zone_visits')
-    .select('*', { count: 'exact', head: true })
-    .eq('zone_id', zoneId)
-    .is('exited_at', null)
-    .lt('entered_at', driverEnteredAt);
-  if (error) {
-    console.warn('[zoneStatsEngine] getDriverPositionInZone failed', error);
-    return null;
-  }
-  return (count ?? 0) + 1;
+  // Historical zone_visits can contain stale open rows if a device missed an
+  // exit, so it is not a reliable live queue-order source. Hide the position
+  // until live ordering is derived from fresh presence rows.
+  return null;
 }
 
 // ── DEPRECATED — DO NOT CALL FROM APP CODE ───────────────────────────────────

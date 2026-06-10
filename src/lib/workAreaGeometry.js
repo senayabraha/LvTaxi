@@ -70,7 +70,7 @@ export async function refreshWorkAreaCache({ force = false } = {}) {
   // Staging zones — use the store if populated, otherwise query directly.
   const stateZones = store.getState().zones?.allZones;
   if (stateZones && stateZones.length > 0) {
-    stagingZones = stateZones.filter((z) => !z.is_coming_soon);
+    stagingZones = stateZones.filter((z) => z.active !== false && !z.is_coming_soon);
   } else {
     const { data, error } = await supabase
       .from('staging_zones')

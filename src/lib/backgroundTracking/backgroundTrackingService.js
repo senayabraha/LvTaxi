@@ -31,6 +31,7 @@ import {
   refreshWorkAreaCache,
   isInsideWorkAreaPolygon,
   classifyPassiveDistance,
+  detectStagingZoneFromPoint,
 } from '../workAreaGeometry';
 import { clearDriverPresence } from '../zoneStatsEngine';
 import { recordTrackingDebug } from './trackingDebug';
@@ -158,15 +159,22 @@ async function stopTask(taskName) {
   if (await isTaskRunning(taskName)) {
     try {
       await Location.stopLocationUpdatesAsync(taskName);
+      return true;
     } catch (err) {
       console.warn('[backgroundTracking] stop task failed', taskName, err);
+      return false;
     }
   }
+  return true;
 }
 
 // ── Passive tracking ─────────────────────────────────────────────────────────
 export async function startPassiveTracking(mode = DRIVER_STATUS.PASSIVE_FAR) {
-  if (!(await hasPermissions())) return false;
+  recordTrackingDebug({ passiveTaskStartRequestedAt: Date.now(), passiveTaskStartError: null });
+  if (!(await hasPermissions())) {
+    recordTrackingDebug({ passiveTaskStartError: 'missing_location_permission' });
+    return false;
+  }
   // Only one task runs at a time — passive owns the slow watch.
   await stopActiveTracking();
 
@@ -187,26 +195,57 @@ export async function startPassiveTracking(mode = DRIVER_STATUS.PASSIVE_FAR) {
     return true;
   } catch (err) {
     console.warn('[backgroundTracking] startPassiveTracking failed', err);
+    recordTrackingDebug({ passiveTaskStartError: err?.message ?? 'start_passive_failed' });
     return false;
   }
 }
 
 export async function stopPassiveTracking() {
-  await stopTask(LVTAXI_PASSIVE_LOCATION_TASK);
+  recordTrackingDebug({ passiveTaskStopRequestedAt: Date.now(), passiveTaskStopError: null });
+  const ok = await stopTask(LVTAXI_PASSIVE_LOCATION_TASK);
+  if (!ok) {
+    recordTrackingDebug({ passiveTaskStopError: 'stop_passive_failed' });
+  }
   currentPassiveMode = null;
+  return ok;
 }
 
 // ── Active tracking ──────────────────────────────────────────────────────────
 export async function startActiveTracking() {
-  if (!(await hasPermissions())) return false;
-  await stopPassiveTracking();
+  recordTrackingDebug({ activeTaskStartRequestedAt: Date.now(), activeTaskStartError: null });
+  if (!(await hasPermissions())) {
+    recordTrackingDebug({ activeTaskStartError: 'missing_location_permission' });
+    return false;
+  }
 
   const alreadyRunning = await isTaskRunning(LVTAXI_ACTIVE_LOCATION_TASK);
+
+  // If the active task is already running at the correct cadence, do not stop and
+  // restart it. This is critical on Android: calling stopLocationUpdatesAsync then
+  // startLocationUpdatesAsync from WITHIN the active task's own execution (e.g.
+  // transitionToStaged called from activeLocationTask) causes the restart to fail
+  // with a platform error.
+  // NOTE: when currentActiveCadence is null (cold OS relaunch, module state cleared)
+  // we do NOT skip the restart — the task may have been left running at exit_grace
+  // cadence (60s) and we must upgrade it to active cadence (5s). Accepting null as
+  // a "good enough" cadence caused 12x slower location updates after cold relaunch.
   if (alreadyRunning && currentActiveCadence === 'active') {
     recordTrackingDebug({ lastTask: 'active' });
     return true;
   }
-  if (alreadyRunning) await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
+
+  // Not running, running at wrong cadence, or cadence unknown after cold relaunch —
+  // stop passive, then (re)start at the correct active cadence.
+  await stopPassiveTracking();
+  if (alreadyRunning) {
+    // Best-effort stop — ignore failure. startLocationUpdatesAsync will replace
+    // the existing registration even if stop didn't cleanly fire on some Android OEMs.
+    try {
+      await Location.stopLocationUpdatesAsync(LVTAXI_ACTIVE_LOCATION_TASK);
+    } catch (stopErr) {
+      console.warn('[backgroundTracking] stopActiveTask failed (non-fatal)', stopErr);
+    }
+  }
 
   try {
     await Location.startLocationUpdatesAsync(
@@ -218,6 +257,7 @@ export async function startActiveTracking() {
     return true;
   } catch (err) {
     console.warn('[backgroundTracking] startActiveTracking failed', err);
+    recordTrackingDebug({ activeTaskStartError: err?.message ?? 'start_active_failed' });
     return false;
   }
 }
@@ -225,10 +265,24 @@ export async function startActiveTracking() {
 // EXIT_GRACE reuses the active task (same in-task logic) but at a lighter cadence.
 export async function startExitGraceTracking() {
   if (!(await hasPermissions())) return false;
-  await stopPassiveTracking();
 
   const alreadyRunning = await isTaskRunning(LVTAXI_ACTIVE_LOCATION_TASK);
+
+  // Already running at exit_grace cadence — no restart needed.
   if (alreadyRunning && currentActiveCadence === 'exit_grace') return true;
+
+  // If called from WITHIN the active task (currentActiveCadence === 'active'),
+  // stopping and restarting the task from its own execution crashes on Android.
+  // Accept the active cadence rather than restarting — the next active-task tick
+  // will call startExitGraceTracking again where a proper restart is safe.
+  if (alreadyRunning && currentActiveCadence === 'active') {
+    currentActiveCadence = 'exit_grace';
+    return true;
+  }
+
+  // All other cases (cold relaunch with null cadence, or task not running):
+  // stop passive, then start exit_grace.
+  await stopPassiveTracking();
   if (alreadyRunning) await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
 
   try {
@@ -245,8 +299,13 @@ export async function startExitGraceTracking() {
 }
 
 export async function stopActiveTracking() {
-  await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
+  recordTrackingDebug({ activeTaskStopRequestedAt: Date.now(), activeTaskStopError: null });
+  const ok = await stopTask(LVTAXI_ACTIVE_LOCATION_TASK);
+  if (!ok) {
+    recordTrackingDebug({ activeTaskStopError: 'stop_active_failed' });
+  }
   currentActiveCadence = null;
+  return ok;
 }
 
 export async function stopAllBackgroundTracking() {
@@ -299,6 +358,17 @@ export async function reconcileTrackingOnAppLaunch() {
   if (pos?.coords) {
     const { latitude: lat, longitude: lng } = pos.coords;
     if (isInsideWorkAreaPolygon(lat, lng)) {
+      // Check for a staging zone first: a driver relaunching while staged must
+      // not be downgraded to ACTIVE just because reconcile runs before the active
+      // task fires its first tick.
+      const zone = detectStagingZoneFromPoint(lat, lng);
+      if (zone) {
+        const { transitionToStaged } = await import('../driverStatusTransitions');
+        await transitionToStaged(driverId, zone.id, { source: 'reconcileTrackingOnAppLaunch' });
+        await startActiveTracking();
+        recordTrackingDebug({ lastStatus: DRIVER_STATUS.STAGED, insideWorkArea: true, detectedZoneId: zone.id });
+        return;
+      }
       await persistDriverStatus(driverId, DRIVER_STATUS.ACTIVE, {
         work_area_entry_time: new Date().toISOString(),
         work_area_exit_started_at: null,

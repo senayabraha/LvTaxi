@@ -35,8 +35,9 @@ function emitFlash(zoneId) {
 
 const MAX_BACKOFF_MS = 60_000;
 
-// How often to re-poll live stats from the RPC (supplements realtime).
-// Live counts depend on 90-second TTL pings so polling keeps things honest.
+// How often to re-poll live stats from the RPC as a backstop fallback.
+// With the snapshot table + realtime subscription this fires rarely; it exists
+// only to recover from missed realtime events or snapshot staleness.
 const LIVE_POLL_INTERVAL_MS = 30_000;
 
 export function useZones() {
@@ -51,6 +52,7 @@ export function useZones() {
   const retryDelayRef = useRef(1000);
   const retryTimerRef = useRef(null);
   const pollTimerRef = useRef(null);
+  const presenceDebounceRef = useRef(null);
 
   // Merge an array of live-stats rows into Redux (same shape as updateZoneStat).
   const mergeLiveStats = useCallback(
@@ -66,6 +68,26 @@ export function useZones() {
     [dispatch]
   );
 
+  // Load stats from the snapshot table (cheap primary path).
+  // Falls back to the heavy RPC when the snapshot table is empty or unavailable.
+  const loadStatsFromSnapshot = useCallback(async () => {
+    if (cancelledRef.current) return;
+    const { data, error } = await supabase
+      .from('zone_live_stats_snapshot')
+      .select('*');
+    if (cancelledRef.current) return;
+    if (!error && data && data.length > 0) {
+      // Remap zone_id column to match the RPC shape (zone_id is the PK here too).
+      mergeLiveStats(data);
+      return;
+    }
+    // Snapshot empty or unavailable — fall back to the RPC.
+    const rows = await fetchLiveZoneStats();
+    if (!cancelledRef.current && rows) {
+      mergeLiveStats(rows);
+    }
+  }, [mergeLiveStats]);
+
   const loadLiveStats = useCallback(async () => {
     if (cancelledRef.current) return;
     const rows = await fetchLiveZoneStats();
@@ -78,13 +100,16 @@ export function useZones() {
     async ({ showLoading = true } = {}) => {
       if (showLoading) dispatch(setLoading(true));
       try {
-        const [zonesRes, liveStats] = await Promise.all([
+        // Zones and snapshot stats load in parallel.
+        const [zonesRes, snapshotRes] = await Promise.all([
           supabase
             .from('staging_zones')
             .select('*')
             .eq('active', true)
             .eq('visible_to_drivers', true),
-          fetchLiveZoneStats(),
+          supabase
+            .from('zone_live_stats_snapshot')
+            .select('*'),
         ]);
 
         if (cancelledRef.current) return;
@@ -94,19 +119,30 @@ export function useZones() {
         dispatch(setZones(zones));
         saveZonesCache(zones);
 
-        if (liveStats) {
-          mergeLiveStats(liveStats);
+        const snapshotRows = !snapshotRes.error ? (snapshotRes.data ?? []) : [];
+
+        if (snapshotRows.length > 0) {
+          // Primary path: use the cheap snapshot table (refreshed every ~10 s by pg_cron).
+          mergeLiveStats(snapshotRows);
         } else {
-          // Fallback: load from zone_stats table directly.
-          const { data: statsRows, error: statsErr } = await supabase
-            .from('zone_stats')
-            .select('*');
-          if (!statsErr && statsRows) {
-            dispatch(setStats(statsRows));
-            const statsMap = {};
-            for (const r of statsRows) statsMap[r.zone_id] = r;
-            saveStatsCache(statsMap);
-            setStatsUpdatedAt(Date.now());
+          // Snapshot empty or migration not applied yet — fall back to the heavy RPC.
+          const liveStats = await fetchLiveZoneStats();
+          if (!cancelledRef.current) {
+            if (liveStats) {
+              mergeLiveStats(liveStats);
+            } else {
+              // Last resort: legacy zone_stats table.
+              const { data: statsRows, error: statsErr } = await supabase
+                .from('zone_stats')
+                .select('*');
+              if (!statsErr && statsRows) {
+                dispatch(setStats(statsRows));
+                const statsMap = {};
+                for (const r of statsRows) statsMap[r.zone_id] = r;
+                saveStatsCache(statsMap);
+                setStatsUpdatedAt(Date.now());
+              }
+            }
           }
         }
 
@@ -155,39 +191,54 @@ export function useZones() {
     // Initial load (zones + live stats from RPC).
     load();
 
-    // Poll live stats every 30 s so stale drivers fall out of count even
-    // without a realtime event.
+    // Backstop poll every 30 s to recover from missed realtime events or
+    // a stale snapshot (e.g. pg_cron not yet enabled on this instance).
     pollTimerRef.current = setInterval(() => {
-      loadLiveStats();
+      loadStatsFromSnapshot();
     }, LIVE_POLL_INTERVAL_MS);
 
-    // Realtime subscription on zone_stats for instant display flashes.
-    // Note: realtime shows legacy cache rows — enriched fields come from polling.
-    const channel = supabase
-      .channel('zone_stats_changes')
+    // Primary realtime channel: subscribe to zone_live_stats_snapshot changes
+    // (refreshed by pg_cron every ~10 s). Each INSERT/UPDATE carries fresh counts
+    // for one zone and costs the client nothing to compute (SCALE-1).
+    const snapshotChannel = supabase
+      .channel('zone_snapshot_live')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'zone_stats' },
+        { event: '*', schema: 'public', table: 'zone_live_stats_snapshot' },
         (payload) => {
-          if (payload.new) {
-            dispatch(updateZoneStat(payload.new));
-            setStatsUpdatedAt(Date.now());
-            emitFlash(payload.new.zone_id);
-            // Refresh enriched fields from live RPC after every realtime ping.
-            loadLiveStats();
-          }
+          const row = payload.new;
+          if (!row?.zone_id) return;
+          emitFlash(row.zone_id);
+          dispatch(updateZoneStat(row));
+          setStatsUpdatedAt(Date.now());
         }
       )
+      .subscribe();
+
+    // Secondary realtime channel: driver_presence changes flash the zone in the
+    // UI immediately (sub-second feedback) so the staged-car indicator responds
+    // before the next snapshot refresh arrives.
+    const presenceChannel = supabase
+      .channel('driver_presence_live')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'zone_stats' },
+        { event: '*', schema: 'public', table: 'driver_presence' },
         (payload) => {
-          if (payload.new) {
-            dispatch(updateZoneStat(payload.new));
-            setStatsUpdatedAt(Date.now());
-            emitFlash(payload.new.zone_id);
-            loadLiveStats();
+          const zoneId =
+            payload.new?.current_zone_id ??
+            payload.old?.current_zone_id ??
+            null;
+          if (zoneId) emitFlash(zoneId);
+
+          // Debounce a snapshot reload so rapid bursts (driver moving between
+          // zones fires DELETE + INSERT quickly) become a single read.
+          if (presenceDebounceRef.current) {
+            clearTimeout(presenceDebounceRef.current);
           }
+          presenceDebounceRef.current = setTimeout(() => {
+            presenceDebounceRef.current = null;
+            loadStatsFromSnapshot();
+          }, 500);
         }
       )
       .subscribe();
@@ -196,9 +247,11 @@ export function useZones() {
       cancelledRef.current = true;
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-      supabase.removeChannel(channel);
+      if (presenceDebounceRef.current) clearTimeout(presenceDebounceRef.current);
+      supabase.removeChannel(snapshotChannel);
+      supabase.removeChannel(presenceChannel);
     };
-  }, [dispatch, load, loadLiveStats]);
+  }, [dispatch, load, loadLiveStats, loadStatsFromSnapshot]);
 
   return {
     allZones,
