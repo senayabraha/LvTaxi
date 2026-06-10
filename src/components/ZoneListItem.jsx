@@ -55,9 +55,8 @@ function formatWaitRange(stat) {
 
 // ── Driver "you are here" line ────────────────────────────────────────────────
 
-function formatDriverLine(stat, driverPosition, driverWaitMinutes) {
+function formatDriverLine(stat, driverWaitMinutes) {
   const parts = ['📍 You are here'];
-  if (driverPosition != null) parts.push(`Position #${driverPosition}`);
 
   // Prefer new wait range fields from the live stat.
   const wRange = formatWaitRange(stat);
@@ -114,7 +113,6 @@ function ZoneListItem({
   zone,
   stat,
   isCurrentZone,
-  driverPosition,
   driverWaitMinutes,
 }) {
   if (zone.is_coming_soon) {
@@ -270,7 +268,7 @@ function ZoneListItem({
       {isCurrentZone ? (
         <View className="px-4 pb-3">
           <Text className="text-accent text-xs">
-            {formatDriverLine(stat, driverPosition, driverWaitMinutes)}
+            {formatDriverLine(stat, driverWaitMinutes)}
           </Text>
         </View>
       ) : null}
@@ -280,7 +278,6 @@ function ZoneListItem({
 
 function areEqual(prev, next) {
   if (prev.isCurrentZone !== next.isCurrentZone) return false;
-  if (prev.driverPosition !== next.driverPosition) return false;
   if (prev.driverWaitMinutes !== next.driverWaitMinutes) return false;
   if (prev.zone.id !== next.zone.id) return false;
   const a = prev.stat ?? {};

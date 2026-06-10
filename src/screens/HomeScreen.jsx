@@ -22,7 +22,6 @@ import {
 } from '../lib/geofenceEngine';
 import { startTierManager } from '../lib/tierManager';
 import { setSort } from '../store/zonesSlice';
-import { getDriverPositionInZone } from '../lib/zoneStatsEngine';
 import { initNotifications } from '../lib/notificationService';
 import {
   startNotificationEngine,
@@ -52,10 +51,8 @@ export default function HomeScreen() {
   const currentLat = useSelector((s) => s.drivers.currentLat);
   const currentLng = useSelector((s) => s.drivers.currentLng);
   const currentZoneId = useSelector((s) => s.drivers.currentZoneId);
-  const zoneEntryTime = useSelector((s) => s.drivers.zoneEntryTime);
 
   const [now, setNow] = useState(() => new Date());
-  const [driverPosition, setDriverPosition] = useState(null);
   const prevStatusRef = useRef(status);
 
   useEffect(() => {
@@ -142,23 +139,6 @@ export default function HomeScreen() {
     return [...active, ...comingSoon];
   }, [enriched, activeSort]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadPosition() {
-      if (!currentZoneId || !zoneEntryTime) {
-        setDriverPosition(null);
-        return;
-      }
-      const enteredAtIso = new Date(zoneEntryTime).toISOString();
-      const pos = await getDriverPositionInZone(currentZoneId, enteredAtIso);
-      if (!cancelled) setDriverPosition(pos);
-    }
-    loadPosition();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentZoneId, zoneEntryTime, stats]);
-
   // Prefer new estimated_wait_minutes; fall back to legacy field.
   const currentZoneStat = currentZoneId ? stats[currentZoneId] : null;
   const currentZoneWait =
@@ -172,11 +152,10 @@ export default function HomeScreen() {
         zone={item.zone}
         stat={item.stat}
         isCurrentZone={item.zone.id === currentZoneId}
-        driverPosition={item.zone.id === currentZoneId ? driverPosition : null}
         driverWaitMinutes={item.zone.id === currentZoneId ? currentZoneWait : null}
       />
     ),
-    [currentZoneId, driverPosition, currentZoneWait]
+    [currentZoneId, currentZoneWait]
   );
 
   const getItemLayout = useCallback(

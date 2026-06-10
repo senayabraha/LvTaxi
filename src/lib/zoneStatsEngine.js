@@ -127,16 +127,6 @@ export async function recordLoadEvent(zoneId) {
   return { error };
 }
 
-// ── Driver queue position ─────────────────────────────────────────────────────
-// Read-only — counts open visits entered before driverEnteredAt.
-
-export async function getDriverPositionInZone(zoneId, driverEnteredAt) {
-  // Historical zone_visits can contain stale open rows if a device missed an
-  // exit, so it is not a reliable live queue-order source. Hide the position
-  // until live ordering is derived from fresh presence rows.
-  return null;
-}
-
 // ── DEPRECATED — DO NOT CALL FROM APP CODE ───────────────────────────────────
 // incrementZoneCount / decrementZoneCount are retained ONLY as backward-compat
 // exports. As of the presence-based rework, NO live app flow calls them — live
