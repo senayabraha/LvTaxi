@@ -11,7 +11,7 @@ import { processZoneExit } from './visitProcessor';
 import { enterStagingZone } from './stagingService';
 import { clearDriverPresence } from './zoneStatsEngine';
 import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
-import { pointInZonePolygon } from './polygonConfirmation';
+import { confirmStagingLocation } from './polygonConfirmation';
 import { DRIVER_STATUS } from './constants';
 
 export const GEOFENCE_TASK = 'LVTAXI_GEOFENCE_TASK';
@@ -81,15 +81,11 @@ function getZoneById(id) {
 // Hybrid layer: native circle wakes us up, polygon refines. Delegates to the
 // shared confirmation helper so the manual ("I'm Staging") path and this geofence
 // path use one implementation.
-//   • No polygon  → true (trust the native circle that woke us — this path is
-//                   only reached for zones with a circle geofence anyway).
+//   • No polygon  → tight radius fallback from confirmStagingLocation.
 //   • Has polygon → must contain the point; a malformed-polygon error is
-//                   fail-closed (helper returns false) so we never confirm
-//                   staging on corrupt data.
-function verifyWithPolygon(zone, lat, lng) {
-  if (!zone) return true;
-  const inside = pointInZonePolygon(zone, lat, lng);
-  return inside === null ? true : inside;
+//                   fail-closed so we never confirm staging on corrupt data.
+export function verifyWithPolygon(zone, lat, lng) {
+  return confirmStagingLocation(zone, lat, lng).confirmed;
 }
 
 async function completeHandleEnter(zoneId, zone, driverId) {
@@ -147,8 +143,10 @@ async function handleEnter(zoneId) {
   // is set while the polygon retry loop is running.
   if (activeVisits.has(zoneId) || pendingEntries.has(zoneId)) return;
 
-  // Native geofence is wider than the actual lane — confirm with polygon.
-  if (zone?.drawn_polygon || zone?.driven_polygon) {
+  // Native geofence is wider than the actual lane. Confirm with the shared
+  // staging helper so malformed polygons fail closed and polygon-less zones use
+  // the same tight radius fallback as the manual path.
+  if (zone) {
     let pos = null;
     try {
       pos = await Location.getLastKnownPositionAsync({ maxAge: 30_000 });

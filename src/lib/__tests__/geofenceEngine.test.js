@@ -64,11 +64,7 @@ jest.mock('../backgroundTracking/trackingDebug', () => ({
   recordTrackingDebug: jest.fn(),
 }));
 
-jest.mock('../polygonConfirmation', () => ({
-  pointInZonePolygon: jest.fn(() => true),
-}));
-
-const { getTop20Zones } = require('../geofenceEngine');
+const { getTop20Zones, verifyWithPolygon } = require('../geofenceEngine');
 
 describe('geofenceEngine monitored zones', () => {
   test('uses nearest physical zones regardless of UI sort', () => {
@@ -104,5 +100,17 @@ describe('geofenceEngine monitored zones', () => {
     expect(monitored.map((z) => z.id)).toEqual(
       Array.from({ length: 20 }, (_, i) => `zone-${i}`)
     );
+  });
+
+  test('fails closed for malformed polygons', () => {
+    const zone = {
+      id: 'bad-polygon',
+      lat: 36.1,
+      lng: -115.17,
+      drawn_polygon: { type: 'Polygon', coordinates: 'not-a-ring' },
+      use_driven_polygon: false,
+    };
+
+    expect(verifyWithPolygon(zone, 36.1, -115.17)).toBe(false);
   });
 });
