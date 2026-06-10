@@ -70,7 +70,6 @@ module.exports = {
         backgroundColor: '#0B0F1A',
       },
       package: 'com.lvtaxi.app',
-      versionCode: 1,
       permissions: [
         'ACCESS_FINE_LOCATION',
         'ACCESS_COARSE_LOCATION',
