@@ -17,6 +17,7 @@ import { upsertDriverPresence } from './zoneStatsEngine';
 import { recordPresenceWrite } from './locationWritePolicy';
 import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
 import { isFixAcceptableForPresence } from './presenceGate';
+import { SESSION_ID, getDeviceId, getAppVersion, getPlatform } from './deviceIdentity';
 
 let lastHeartbeatAt = 0;
 
@@ -126,6 +127,10 @@ export async function maybeSendPresenceHeartbeat({
   const rpcStartedAt = Date.now();
   recordTrackingDebug({ heartbeatRpcStartedAt: rpcStartedAt, heartbeatRpcFinishedAt: null });
 
+  // Device identity is resolved once per launch (cached after the first async
+  // lookup). Errors fall back to null — the server accepts null gracefully.
+  const deviceId = await getDeviceId().catch(() => null);
+
   const { error, lastPingAt } = await upsertDriverPresence({
     driverId,
     zoneId: zoneId ?? null,
@@ -136,6 +141,10 @@ export async function maybeSendPresenceHeartbeat({
     accuracy,
     heading,
     visitId: visitId ?? null,
+    deviceId,
+    sessionId: SESSION_ID,
+    appVersion: getAppVersion(),
+    platform: getPlatform(),
   });
 
   const rpcFinishedAt = Date.now();

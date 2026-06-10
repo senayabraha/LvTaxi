@@ -46,6 +46,10 @@ export async function upsertDriverPresence({
   accuracy,
   heading,
   visitId,
+  deviceId,
+  sessionId,
+  appVersion,
+  platform,
 }) {
   const args = {
     p_driver_id:      driverId,
@@ -57,6 +61,10 @@ export async function upsertDriverPresence({
     p_accuracy:       accuracy ?? null,
     p_heading:        heading ?? null,
     p_visit_id:       visitId ?? null,
+    p_device_id:      deviceId ?? null,
+    p_session_id:     sessionId ?? null,
+    p_app_version:    appVersion ?? null,
+    p_platform:       platform ?? null,
   };
 
   // Prefer the server-validated RPC (migration 023): it recomputes the true zone
