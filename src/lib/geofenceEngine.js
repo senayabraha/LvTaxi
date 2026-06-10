@@ -12,7 +12,7 @@ import { enterStagingZone } from './stagingService';
 import { clearDriverPresence } from './zoneStatsEngine';
 import { recordTrackingDebug } from './backgroundTracking/trackingDebug';
 import { pointInZonePolygon } from './polygonConfirmation';
-import { DRIVER_STATUS, SORT_OPTIONS } from './constants';
+import { DRIVER_STATUS } from './constants';
 
 export const GEOFENCE_TASK = 'LVTAXI_GEOFENCE_TASK';
 
@@ -309,34 +309,20 @@ export function getWaitSortValue(stat) {
   );
 }
 
-export function getTop20Zones(allZones, sortOption, driverLat, driverLng) {
+export function getTop20Zones(allZones, _sortOption, driverLat, driverLng) {
   if (!allZones || allZones.length === 0) return [];
-  const stats = store.getState().zones.stats;
-  // Coming Soon zones are placeholders only — never spend a geofence slot.
+  // Geofence slots are for physical proximity only. The visible list may sort
+  // by flow or wait, but native monitoring must always track the nearest zones.
   const list = allZones.filter((z) => !z.is_coming_soon);
 
-  if (sortOption === SORT_OPTIONS.NEAREST) {
-    if (driverLat == null || driverLng == null) {
-      return list.slice(0, 20);
-    }
-    list.sort((a, b) => {
-      const da = getDistanceMeters(driverLat, driverLng, a.lat, a.lng);
-      const db = getDistanceMeters(driverLat, driverLng, b.lat, b.lng);
-      return da - db;
-    });
-  } else if (sortOption === SORT_OPTIONS.FLOW) {
-    list.sort((a, b) => {
-      const fa = stats[a.id]?.flow_rate_per_hour ?? 0;
-      const fb = stats[b.id]?.flow_rate_per_hour ?? 0;
-      return fb - fa;
-    });
-  } else if (sortOption === SORT_OPTIONS.WAIT) {
-    list.sort((a, b) => {
-      const wa = getWaitSortValue(stats[a.id]);
-      const wb = getWaitSortValue(stats[b.id]);
-      return wa - wb;
-    });
+  if (driverLat == null || driverLng == null) {
+    return list.slice(0, 20);
   }
+  list.sort((a, b) => {
+    const da = getDistanceMeters(driverLat, driverLng, a.lat, a.lng);
+    const db = getDistanceMeters(driverLat, driverLng, b.lat, b.lng);
+    return da - db;
+  });
 
   return list.slice(0, 20);
 }
@@ -397,25 +383,17 @@ export function updateActiveGeofences(top20Zones) {
 function recomputeAndApply() {
   const state = store.getState();
   const { allZones } = state.zones;
-  const { activeSort, currentLat, currentLng } = {
-    activeSort: state.zones.activeSort,
-    currentLat: state.drivers.currentLat,
-    currentLng: state.drivers.currentLng,
-  };
+  const { currentLat, currentLng } = state.drivers;
 
   // Set the anchor BEFORE dispatching so the subscriber's movedFar check
   // (which runs on every store change) doesn't see a null anchor and re-enter.
-  if (
-    activeSort === SORT_OPTIONS.NEAREST &&
-    currentLat != null &&
-    currentLng != null
-  ) {
+  if (currentLat != null && currentLng != null) {
     lastRefreshAnchor = { lat: currentLat, lng: currentLng };
   } else {
     lastRefreshAnchor = null;
   }
 
-  const top20 = getTop20Zones(allZones, activeSort, currentLat, currentLng);
+  const top20 = getTop20Zones(allZones, null, currentLat, currentLng);
   store.dispatch(setTop20Zones(top20));
   updateActiveGeofences(top20);
 }
@@ -437,26 +415,18 @@ export function startGeofenceManager() {
 
   guardedRecompute();
 
-  let prevSort = store.getState().zones.activeSort;
   let prevZonesLength = store.getState().zones.allZones.length;
-  let prevStatsKey = JSON.stringify(
-    Object.keys(store.getState().zones.stats).sort()
-  );
 
   unsubscribeStore = store.subscribe(() => {
     if (isRecomputing) return;
     const state = store.getState();
-    const { activeSort, allZones, stats } = state.zones;
+    const { allZones } = state.zones;
     const { currentLat, currentLng } = state.drivers;
 
-    const sortChanged = activeSort !== prevSort;
     const zonesChanged = allZones.length !== prevZonesLength;
-    const statsKey = JSON.stringify(Object.keys(stats).sort());
-    const statsKeysChanged = statsKey !== prevStatsKey;
 
     let movedFar = false;
     if (
-      activeSort === SORT_OPTIONS.NEAREST &&
       lastRefreshAnchor &&
       currentLat != null &&
       currentLng != null
@@ -469,7 +439,6 @@ export function startGeofenceManager() {
       );
       if (moved >= NEAREST_REFRESH_METERS) movedFar = true;
     } else if (
-      activeSort === SORT_OPTIONS.NEAREST &&
       !lastRefreshAnchor &&
       currentLat != null &&
       currentLng != null
@@ -477,10 +446,8 @@ export function startGeofenceManager() {
       movedFar = true;
     }
 
-    if (sortChanged || zonesChanged || statsKeysChanged || movedFar) {
-      prevSort = activeSort;
+    if (zonesChanged || movedFar) {
       prevZonesLength = allZones.length;
-      prevStatsKey = statsKey;
       isRecomputing = true;
       try {
         recomputeAndApply();
